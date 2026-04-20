@@ -22,6 +22,7 @@
       inherit (inputs.nixpkgs_unstable) lib;
 
       supportedSystems = [
+        "x86_64-linux"
         "x86_64-darwin"
         "aarch64-darwin"
       ];
@@ -108,14 +109,15 @@
               inherit brew-src;
             }
           );
-          devShell = forAllSystems (
-            pkgs:
-            pkgs.mkShell {
-              nativeBuildInputs = with pkgs; [
-                nixfmt-rfc-style
-              ];
+          devShells = forAllSystems (
+            pkgs: {
+              default = pkgs.mkShell {
+                nativeBuildInputs = with pkgs; [
+                  nixfmt-rfc-style
+                ];
 
-              BREW_SRC = brew-src;
+                BREW_SRC = brew-src;
+              };
             }
           );
           githubActions = inputs.nix-github-actions.lib.mkGithubMatrix {

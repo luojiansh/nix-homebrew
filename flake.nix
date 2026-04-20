@@ -30,6 +30,6 @@
       default = nix-homebrew;
     };
 
-    inherit (ci) packages devShell ciTests githubActions;
+    inherit (ci) packages devShells ciTests githubActions;
   };
 }

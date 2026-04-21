@@ -38,6 +38,12 @@
       default = nix-homebrew;
     };
 
+    homeManagerModules = rec {
+      nix-homebrew = moduleWithDefaults;
+
+      default = nix-homebrew;
+    };
+
     inherit (ci) packages devShells ciTests githubActions;
   };
 }

@@ -27,7 +27,7 @@
 #
 #   nix-homebrew = {
 #     enable = true;
-#     user = "yourname";
+#     # user automatically defaults to home.username
 #     # Optional: Declare taps
 #     # taps = {
 #     #   "homebrew/homebrew-core" = pkgs.fetchFromGitHub {
@@ -44,8 +44,8 @@
 {
   nix-homebrew = {
     enable = true;
-    user = "yourname";
-    # Optionally disable mutable taps to have only declarative taps
+    # user automatically defaults to config.home.username
+    # Optional: Disable mutable taps to have only declarative taps
     # mutableTaps = false;
     # Optional: Automatically migrate existing Homebrew installation
     # autoMigrate = true;

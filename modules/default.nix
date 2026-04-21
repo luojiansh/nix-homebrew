@@ -409,11 +409,8 @@ in {
       user = lib.mkOption {
         description = ''
           The user owning the Homebrew directories.
-
-          For Home Manager, this defaults to the current user.
         '';
         type = types.str;
-        default = if (options ? home) then config.home.username else null;
       };
       group = lib.mkOption {
         description = ''
@@ -496,6 +493,10 @@ in {
   config = lib.mkIf (cfg.enable) {
     assertions = [
       {
+        assertion = cfg.user != null && cfg.user != "";
+        message = "nix-homebrew.user must be set";
+      }
+      {
         assertion = cfg.enableRosetta -> (pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64);
         message = "nix-homebrew.enableRosetta is set to true but this isn't an Apple Silicon Mac";
       }
@@ -506,6 +507,11 @@ in {
         message = "Please update your nix-darwin version to use system-wide activation";
       }
     ];
+
+    # Set user default for home-manager
+    nix-homebrew.user = lib.mkDefault (
+      if (options ? home) then config.home.username else ""
+    );
 
     nix-homebrew = {
       prefixes = {

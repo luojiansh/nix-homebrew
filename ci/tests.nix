@@ -2,6 +2,7 @@
   self,
   pkgs,
   nix-darwin,
+  nixpkgs ? null,
 }:
 
 let
@@ -9,12 +10,12 @@ let
 
   tools = self.packages.${pkgs.system};
 
-  makeTest =
-    module:
-    nix-darwin.lib.darwinSystem {
+  makeSystemTest =
+    mkSystem: baseModule: module:
+    mkSystem {
       inherit system pkgs;
       modules = [
-        self.darwinModules.nix-homebrew
+        baseModule
         module
         (
           {
@@ -68,147 +69,165 @@ let
       ];
     };
 
-  makeTapValidationTest =
-    module:
-    makeTest (
-      { pkgs, config, ... }:
-      let
-        prefixName =
-          if pkgs.stdenv.hostPlatform.isAarch64 then
-            config.nix-homebrew.defaultArm64Prefix
-          else
-            config.nix-homebrew.defaultIntelPrefix;
-        library = config.nix-homebrew.prefixes.${prefixName}.library;
-        fakeCaskTap = pkgs.runCommandLocal "homebrew-cask-test-tap" { } ''
-          mkdir -p "$out/Casks/u"
-          touch "$out/Casks/u/ungoogled-chromium.rb"
-        '';
-        fakeThirdPartyTap = pkgs.runCommandLocal "thirdparty-test-tap" { } ''
-          mkdir -p "$out/Formula" "$out/Casks" "$out/cmd"
-          touch "$out/Formula/foo.rb"
-          touch "$out/Casks/test-cask.rb"
-          touch "$out/cmd/brew-test-command.rb"
-        '';
-      in
-      {
-        imports = [
-          module
-        ];
-
-        _module.args.library = library;
-
-        nix-homebrew = {
-          enable = true;
-          autoMigrate = true;
-          taps = {
-            "homebrew/homebrew-cask" = fakeCaskTap;
-            "thirdparty/homebrew-testtap" = fakeThirdPartyTap;
-          };
-          trust = {
-            formulae = [ "thirdparty/testtap/foo" ];
-            casks = [ "thirdparty/testtap/test-cask" ];
-            commands = [ "thirdparty/testtap/test-command" ];
-          };
-        };
-
-        ci.preScript = ''
-          >&2 echo "Removing runner Homebrew taps before declarative tap validation"
-          if [[ -e "${library}/Taps" || -L "${library}/Taps" ]]; then
-            sudo rm -rf "${library}/Taps"
-          fi
-        '';
-
-        ci.postScript = ''
-          >&2 echo "Checking declarative cask tap realpaths"
-          tap_root="${library}/Taps"
-          cask_path="$tap_root/homebrew/homebrew-cask/Casks/u/ungoogled-chromium.rb"
-
-          test -f "$cask_path"
-
-          >&2 echo "Checking declarative Homebrew trust entries"
-          brew trust --json=v1 --formula | grep '"thirdparty/testtap/foo"'
-          brew trust --json=v1 --cask | grep '"thirdparty/testtap/test-cask"'
-          brew trust --json=v1 --command | grep '"thirdparty/testtap/test-command"'
-          if brew trust --json=v1 --tap | grep '"thirdparty/testtap"'; then
-            >&2 echo "Expected thirdparty/testtap not to be trusted as a whole tap"
-            exit 1
-          fi
-
-          tap_root_real="$(${pkgs.coreutils}/bin/realpath "$tap_root")"
-          cask_real="$(${pkgs.coreutils}/bin/realpath "$cask_path")"
-
-          case "$cask_real" in
-            "$tap_root_real"/*) ;;
-            *)
-              >&2 echo "Expected cask realpath to stay under managed Taps root"
-              >&2 echo "Taps realpath: $tap_root_real"
-              >&2 echo "Cask realpath: $cask_real"
-              exit 1
-              ;;
-          esac
-        '';
-      }
-    );
-in
-{
-  migrate = makeTest (
-    { pkgs, config, ... }:
-    {
-      imports = [
-        (self + "/examples/migrate.nix")
-      ];
-      nix-homebrew.enableRosetta = lib.mkForce pkgs.stdenv.hostPlatform.isAarch64;
-
-      # We only have Apple Silicon instances - Only test the install steps on native
-      # Apple Silicon for now
-      ci.preScript = lib.optionalString pkgs.stdenv.hostPlatform.isAarch64 ''
-        >&2 echo "Installing some package with Homebrew"
-        brew install unbound
-
-        >&2 echo "Adding a third-party tap imperatively"
-        brew tap koekeishiya/formulae
-      '';
-      ci.postScript = ''
-        >&2 echo "Checking brew"
-        which brew
-      ''
-      + lib.optionalString pkgs.stdenv.hostPlatform.isAarch64 ''
-        >&2 echo "Checking that we can still use the unbound package"
-        $(brew --prefix)/sbin/unbound -V
-
-        >&2 echo "Checking that we can still use the tap we added imperatively"
-        brew install koekeishiya/formulae/yabai
-      ''
-      + lib.optionalString config.nix-homebrew.enableRosetta ''
-        >&2 echo "Checking we can execute the Intel brew with arch -x86_64"
-        arch -x86_64 /usr/local/bin/brew config | grep "HOMEBREW_PREFIX: /usr/local"
-
-        >&2 echo "Checking that the unified brew launcher selects the correct prefix"
-        arch -arm64 brew config | grep "HOMEBREW_PREFIX: /opt/homebrew"
-        arch -x86_64 brew config | grep "HOMEBREW_PREFIX: /usr/local"
-      '';
-    }
-  );
-
-  tap-validation-mutable = makeTapValidationTest { };
-
-  tap-validation-declarative = makeTapValidationTest (
-    { library, ... }:
-    {
-      nix-homebrew.mutableTaps = false;
-
-      ci.preScript = ''
-        >&2 echo "Removing runner Homebrew taps before declarative tap validation"
-        if [[ -e "${library}/Taps" || -L "${library}/Taps" ]]; then
-          sudo rm -rf "${library}/Taps"
-        fi
-      '';
-    }
-  );
-
-  nuke-homebrew-repository = makeTest {
+  nukeModule = {
     ci.script = lib.mkForce ''
       cat "${tools.nuke-homebrew-repository.passthru.tests.test-nuke}"
     '';
+  };
+
+  makeTest =
+    {
+      darwinModule ? null,
+      linuxModule ? null,
+    }:
+    if pkgs.stdenv.hostPlatform.isDarwin then
+      if darwinModule == null then
+        throw "darwinModule must be set for Darwin tests"
+      else
+        lib.pipe makeSystemTest [
+          (applyMkSystem: applyMkSystem nix-darwin.lib.darwinSystem)
+          (applyBaseModule: applyBaseModule self.darwinModules.nix-homebrew)
+          (applyModule: applyModule darwinModule)
+        ]
+    else if pkgs.stdenv.hostPlatform.isLinux then
+      if linuxModule == null then
+        throw "linuxModule must be set for Linux tests"
+      else
+        lib.pipe makeSystemTest [
+          (applyMkSystem: applyMkSystem nixpkgs.lib.nixosSystem)
+          (applyBaseModule: applyBaseModule self.nixosModules.nix-homebrew)
+          (applyModule: applyModule linuxModule)
+        ]
+    else
+      throw "Unsupported CI test platform: ${pkgs.stdenv.hostPlatform.system}";
+
+  makeTapValidationTest =
+    { mutableTaps ? true }:
+    makeTest {
+      darwinModule =
+        { pkgs, config, ... }:
+        let
+          prefixName =
+            if pkgs.stdenv.hostPlatform.isAarch64 then
+              config.nix-homebrew.defaultArm64Prefix
+            else
+              config.nix-homebrew.defaultIntelPrefix;
+          library = config.nix-homebrew.prefixes.${prefixName}.library;
+          fakeCaskTap = pkgs.runCommandLocal "homebrew-cask-test-tap" { } ''
+            mkdir -p "$out/Casks/u"
+            touch "$out/Casks/u/ungoogled-chromium.rb"
+          '';
+          fakeThirdPartyTap = pkgs.runCommandLocal "thirdparty-test-tap" { } ''
+            mkdir -p "$out/Formula" "$out/Casks" "$out/cmd"
+            touch "$out/Formula/foo.rb"
+            touch "$out/Casks/test-cask.rb"
+            touch "$out/cmd/brew-test-command.rb"
+          '';
+        in
+        {
+          nix-homebrew = {
+            enable = true;
+            autoMigrate = true;
+            inherit mutableTaps;
+            taps = {
+              "homebrew/homebrew-cask" = fakeCaskTap;
+              "thirdparty/homebrew-testtap" = fakeThirdPartyTap;
+            };
+            trust = {
+              formulae = [ "thirdparty/testtap/foo" ];
+              casks = [ "thirdparty/testtap/test-cask" ];
+              commands = [ "thirdparty/testtap/test-command" ];
+            };
+          };
+
+          ci.preScript = ''
+            >&2 echo "Removing runner Homebrew taps before declarative tap validation"
+            if [[ -e "${library}/Taps" || -L "${library}/Taps" ]]; then
+              sudo rm -rf "${library}/Taps"
+            fi
+          '';
+
+          ci.postScript = ''
+            >&2 echo "Checking declarative cask tap realpaths"
+            tap_root="${library}/Taps"
+            cask_path="$tap_root/homebrew/homebrew-cask/Casks/u/ungoogled-chromium.rb"
+
+            test -f "$cask_path"
+
+            >&2 echo "Checking declarative Homebrew trust entries"
+            brew trust --json=v1 --formula | grep '"thirdparty/testtap/foo"'
+            brew trust --json=v1 --cask | grep '"thirdparty/testtap/test-cask"'
+            brew trust --json=v1 --command | grep '"thirdparty/testtap/test-command"'
+            if brew trust --json=v1 --tap | grep '"thirdparty/testtap"'; then
+              >&2 echo "Expected thirdparty/testtap not to be trusted as a whole tap"
+              exit 1
+            fi
+
+            tap_root_real="$(${pkgs.coreutils}/bin/realpath "$tap_root")"
+            cask_real="$(${pkgs.coreutils}/bin/realpath "$cask_path")"
+
+            case "$cask_real" in
+              "$tap_root_real"/*) ;;
+              *)
+                >&2 echo "Expected cask realpath to stay under managed Taps root"
+                >&2 echo "Taps realpath: $tap_root_real"
+                >&2 echo "Cask realpath: $cask_real"
+                exit 1
+                ;;
+            esac
+          '';
+        };
+    };
+in
+{
+  migrate = makeTest {
+    darwinModule =
+      { pkgs, config, ... }:
+      {
+        imports = [
+          (self + "/examples/migrate.nix")
+        ];
+        nix-homebrew.enableRosetta = lib.mkForce pkgs.stdenv.hostPlatform.isAarch64;
+
+        # We only have Apple Silicon instances - Only test the install steps on native
+        # Apple Silicon for now
+        ci.preScript = lib.optionalString pkgs.stdenv.hostPlatform.isAarch64 ''
+          >&2 echo "Installing some package with Homebrew"
+          brew install unbound
+
+          >&2 echo "Adding a third-party tap imperatively"
+          brew tap koekeishiya/formulae
+        '';
+        ci.postScript = ''
+          >&2 echo "Checking brew"
+          which brew
+        ''
+        + lib.optionalString pkgs.stdenv.hostPlatform.isAarch64 ''
+          >&2 echo "Checking that we can still use the unbound package"
+          $(brew --prefix)/sbin/unbound -V
+
+          >&2 echo "Checking that we can still use the tap we added imperatively"
+          brew install koekeishiya/formulae/yabai
+        ''
+        + lib.optionalString config.nix-homebrew.enableRosetta ''
+          >&2 echo "Checking we can execute the Intel brew with arch -x86_64"
+          arch -x86_64 /usr/local/bin/brew config | grep "HOMEBREW_PREFIX: /usr/local"
+
+          >&2 echo "Checking that the unified brew launcher selects the correct prefix"
+          arch -arm64 brew config | grep "HOMEBREW_PREFIX: /opt/homebrew"
+          arch -x86_64 brew config | grep "HOMEBREW_PREFIX: /usr/local"
+        '';
+      };
+  };
+
+  tap-validation-mutable = makeTapValidationTest { };
+
+  tap-validation-declarative = makeTapValidationTest {
+    mutableTaps = false;
+  };
+
+  nuke-homebrew-repository = makeTest {
+    darwinModule = nukeModule;
+    linuxModule = nukeModule;
   };
 }

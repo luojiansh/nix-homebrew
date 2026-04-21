@@ -29,6 +29,7 @@ jobs:
       - uses: samueldr/lix-gha-installer-action@v2025-10-27
 
       - name: Set up /run for nix-darwin
+        if: contains(matrix.system, 'darwin')
         run: |
           printf 'run\tprivate/var/run\n' | sudo tee -a /etc/synthetic.conf
           sudo /System/Library/Filesystems/apfs.fs/Contents/Resources/apfs.util -t || true

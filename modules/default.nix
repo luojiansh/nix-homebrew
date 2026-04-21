@@ -490,33 +490,29 @@ in {
     };
   };
 
-  config = lib.mkMerge [
-    # Common config for all contexts
-    (lib.mkIf cfg.enable {
-    assertions = [
-      {
-        assertion = cfg.user != null && cfg.user != "";
-        message = "nix-homebrew.user must be set";
-      }
-      {
-        assertion = cfg.enableRosetta -> (pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64);
-        message = "nix-homebrew.enableRosetta is set to true but this isn't an Apple Silicon Mac";
-      }
-      {
-        # nix-darwin has migrated away from user activation in
-        # <https://github.com/LnL7/nix-darwin/pull/1341>.
-        assertion = !pkgs.stdenv.hostPlatform.isDarwin || (options ? home) || options.system ? primaryUser;
-        message = "Please update your nix-darwin version to use system-wide activation";
-      }
-    ];
+  config = lib.mkIf cfg.enable (lib.mkMerge [
+    {
+      assertions = [
+        {
+          assertion = cfg.user != null && cfg.user != "";
+          message = "nix-homebrew.user must be set";
+        }
+        {
+          assertion = cfg.enableRosetta -> (pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64);
+          message = "nix-homebrew.enableRosetta is set to true but this isn't an Apple Silicon Mac";
+        }
+        {
+          # nix-darwin has migrated away from user activation in
+          # <https://github.com/LnL7/nix-darwin/pull/1341>.
+          assertion = !pkgs.stdenv.hostPlatform.isDarwin || (options ? home) || options.system ? primaryUser;
+          message = "Please update your nix-darwin version to use system-wide activation";
+        }
+      ];
 
-    # Set user default for home-manager
-    nix-homebrew.user = lib.mkDefault (
-      if (options ? home) then config.home.username else ""
-    );
+      # Set user default for home-manager
+      nix-homebrew.user = lib.mkDefault (if (options ? home) then config.home.username else "");
 
-    nix-homebrew = {
-      prefixes = {
+      nix-homebrew.prefixes = {
         "/opt/homebrew" = {
           enable = pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64;
           library = "/opt/homebrew/Library";
@@ -533,42 +529,43 @@ in {
           taps = cfg.taps;
         };
       };
-    };
 
-    # Shell integrations
-    # For system-level (nix-darwin/NixOS)
-    programs.bash.interactiveShellInit = lib.mkIf (cfg.enableBashIntegration && !(options ? home)) ''
-      eval "$(brew shellenv 2>/dev/null || true)"
-    '';
+      # Shell integrations
+      # For system-level (nix-darwin/NixOS)
+      programs.bash.interactiveShellInit = lib.mkIf (cfg.enableBashIntegration && !(options ? home)) ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
 
-    programs.zsh.interactiveShellInit = lib.mkIf (cfg.enableZshIntegration && !(options ? home)) ''
-      eval "$(brew shellenv 2>/dev/null || true)"
-    '';
+      programs.zsh.interactiveShellInit = lib.mkIf (cfg.enableZshIntegration && !(options ? home)) ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
 
-    programs.fish.interactiveShellInit = lib.mkIf (cfg.enableFishIntegration && !(options ? home)) ''
-      brew shellenv 2>/dev/null | source || true
-    '';
+      programs.fish.interactiveShellInit = lib.mkIf (cfg.enableFishIntegration && !(options ? home)) ''
+        brew shellenv 2>/dev/null | source || true
+      '';
 
-    # For home-manager
-    programs.bash.initExtra = lib.mkIf (cfg.enableBashIntegration && (options ? home)) ''
-      eval "$(brew shellenv 2>/dev/null || true)"
-    '';
+      # For home-manager
+      programs.bash.initExtra = lib.mkIf (cfg.enableBashIntegration && (options ? home)) ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
 
-    programs.zsh.initExtra = lib.mkIf (cfg.enableZshIntegration && (options ? home)) ''
-      eval "$(brew shellenv 2>/dev/null || true)"
-    '';
+      programs.zsh.initExtra = lib.mkIf (cfg.enableZshIntegration && (options ? home)) ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
 
-    programs.fish.initExtra = lib.mkIf (cfg.enableFishIntegration && (options ? home)) ''
-      brew shellenv 2>/dev/null | source || true
-    '';
+      programs.fish.initExtra = lib.mkIf (cfg.enableFishIntegration && (options ? home)) ''
+        brew shellenv 2>/dev/null | source || true
+      '';
+    }
 
-    })
-
-    # System-level only (nix-darwin/NixOS)
-    (lib.mkIf (cfg.enable && !(options ? home)) {
+    (lib.optionalAttrs (!(options ? home)) {
+      # System-level package management
       environment.systemPackages = [ brewLauncher ];
 
+      # System-level activation
       system.activationScripts = {
+        # Set up the Homebrew prefixes before nix-darwin's homebrew
+        # activation takes place.
         homebrew.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew)) (lib.mkBefore ''
           ${config.system.activationScripts.setup-homebrew.text}
         '');
@@ -578,6 +575,8 @@ in {
         '';
       };
 
+      # disable the install homebrew check
+      # see https://github.com/LnL7/nix-darwin/pull/1178 and https://github.com/zhaofengli/nix-homebrew/issues/45
       system.checks.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew) && config.homebrew.enable) (lib.mkBefore ''
         # Ignore unused variable in nix-darwin versions without it
         # shellcheck disable=SC2034
@@ -585,16 +584,15 @@ in {
       '');
     })
 
-    # Home Manager only
-    (lib.mkIf (cfg.enable && (options ? home)) {
+    (lib.optionalAttrs (options ? home) {
+      # Home Manager package management
       home.packages = [ brewLauncher ];
 
+      # Home Manager activation
       home.activation.setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''
         >&2 echo "setting up Homebrew prefixes..."
         ${setupHomebrew}
       '';
     })
-  ];
-    })
-  ];
+  ]);
 }

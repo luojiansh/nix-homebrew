@@ -409,8 +409,11 @@ in {
       user = lib.mkOption {
         description = ''
           The user owning the Homebrew directories.
+
+          For Home Manager, this defaults to the current user.
         '';
         type = types.str;
+        default = if (options ? home) then config.home.username else null;
       };
       group = lib.mkOption {
         description = ''
@@ -499,7 +502,7 @@ in {
       {
         # nix-darwin has migrated away from user activation in
         # <https://github.com/LnL7/nix-darwin/pull/1341>.
-        assertion = !pkgs.stdenv.hostPlatform.isDarwin || options.system ? primaryUser;
+        assertion = !pkgs.stdenv.hostPlatform.isDarwin || (options ? home) || options.system ? primaryUser;
         message = "Please update your nix-darwin version to use system-wide activation";
       }
     ];
@@ -525,21 +528,40 @@ in {
     };
 
     # Shell integrations
-    programs.bash.interactiveShellInit = lib.mkIf cfg.enableBashIntegration ''
+    # For system-level (nix-darwin/NixOS)
+    programs.bash.interactiveShellInit = lib.mkIf (cfg.enableBashIntegration && !(options ? home)) ''
       eval "$(brew shellenv 2>/dev/null || true)"
     '';
 
-    programs.zsh.interactiveShellInit = lib.mkIf cfg.enableZshIntegration ''
+    programs.zsh.interactiveShellInit = lib.mkIf (cfg.enableZshIntegration && !(options ? home)) ''
       eval "$(brew shellenv 2>/dev/null || true)"
     '';
 
-    programs.fish.interactiveShellInit = lib.mkIf cfg.enableFishIntegration ''
+    programs.fish.interactiveShellInit = lib.mkIf (cfg.enableFishIntegration && !(options ? home)) ''
       brew shellenv 2>/dev/null | source || true
     '';
 
-    environment.systemPackages = [ brewLauncher ];
+    # For home-manager
+    programs.bash.initExtra = lib.mkIf (cfg.enableBashIntegration && (options ? home)) ''
+      eval "$(brew shellenv 2>/dev/null || true)"
+    '';
 
-    system.activationScripts = {
+    programs.zsh.initExtra = lib.mkIf (cfg.enableZshIntegration && (options ? home)) ''
+      eval "$(brew shellenv 2>/dev/null || true)"
+    '';
+
+    programs.fish.initExtra = lib.mkIf (cfg.enableFishIntegration && (options ? home)) ''
+      brew shellenv 2>/dev/null | source || true
+    '';
+
+    # System-level package management
+    environment.systemPackages = lib.mkIf (!(options ? home)) [ brewLauncher ];
+
+    # Home Manager package management
+    home.packages = lib.mkIf (options ? home) [ brewLauncher ];
+
+    # System-level activation
+    system.activationScripts = lib.mkIf (!(options ? home)) {
       # Set up the Homebrew prefixes before nix-darwin's homebrew
       # activation takes place.
       homebrew.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew)) (lib.mkBefore ''
@@ -551,9 +573,17 @@ in {
       '';
     };
 
+    # Home Manager activation
+    home.activation = lib.mkIf (options ? home) {
+      setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        >&2 echo "setting up Homebrew prefixes..."
+        ${setupHomebrew}
+      '';
+    };
+
     # disable the install homebrew check
     # see https://github.com/LnL7/nix-darwin/pull/1178 and https://github.com/zhaofengli/nix-homebrew/issues/45
-    system.checks.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew) && config.homebrew.enable) (lib.mkBefore ''
+    system.checks.text = lib.mkIf (!(options ? home) && pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew) && config.homebrew.enable) (lib.mkBefore ''
       # Ignore unused variable in nix-darwin versions without it
       # shellcheck disable=SC2034
       INSTALLING_HOMEBREW=1

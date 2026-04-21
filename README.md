@@ -11,10 +11,15 @@ For declarative formula/cask management on macOS, use the [`homebrew.*` options]
 
 First of all, choose your platform module:
 
-- macOS: `nix-homebrew.darwinModules.nix-homebrew`
+- macOS (with nix-darwin): `nix-homebrew.darwinModules.nix-homebrew`
 - Linux (NixOS): `nix-homebrew.nixosModules.nix-homebrew`
+- Home Manager (macOS or Linux): `nix-homebrew.homeManagerModules.nix-homebrew`
 
-For macOS, you must have [nix-darwin](https://github.com/LnL7/nix-darwin) configured already.
+### Using with nix-darwin or NixOS
+
+For macOS with nix-darwin, you must have [nix-darwin](https://github.com/LnL7/nix-darwin) configured already.
+For Linux with NixOS, you must have [NixOS](https://nixos.org/) configured.
+
 Add the following to your Flake inputs:
 
 ```nix
@@ -36,6 +41,60 @@ Add the following to your Flake inputs:
   };
 }
 ```
+
+### Using with Home Manager
+
+To use `nix-homebrew` with Home Manager, add it to your flake inputs:
+
+```nix
+{
+  inputs = {
+    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    
+    # (...)
+  };
+}
+```
+
+Then import the module in your Home Manager configuration:
+
+```nix
+{
+  home-manager.users.yourname = { config, ... }: {
+    imports = [
+      nix-homebrew.homeManagerModules.nix-homebrew
+    ];
+
+    nix-homebrew = {
+      enable = true;
+      user = "yourname";
+      # Optional: Configure taps, autoMigrate, etc. (see examples below)
+    };
+  };
+}
+```
+
+Or in a standalone `home.nix`:
+
+```nix
+{ config, ... }:
+{
+  imports = [
+    nix-homebrew.homeManagerModules.nix-homebrew
+  ];
+
+  nix-homebrew = {
+    enable = true;
+    # user defaults to the current Home Manager user
+  };
+}
+```
+
+## Configuration
 
 ### A. New Installation
 

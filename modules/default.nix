@@ -490,7 +490,9 @@ in {
     };
   };
 
-  config = lib.mkIf (cfg.enable) {
+  config = lib.mkMerge [
+    # Common config for all contexts
+    (lib.mkIf cfg.enable {
     assertions = [
       {
         assertion = cfg.user != null && cfg.user != "";
@@ -560,42 +562,39 @@ in {
       brew shellenv 2>/dev/null | source || true
     '';
 
-    # System-level package management
-    environment.systemPackages = lib.mkIf (!(options ? home)) [ brewLauncher ];
+    })
 
-    # Home Manager package management
-    home.packages = lib.optionals (options ? home) [ brewLauncher ];
+    # System-level only (nix-darwin/NixOS)
+    (lib.mkIf (cfg.enable && !(options ? home)) {
+      environment.systemPackages = [ brewLauncher ];
 
-    # System-level activation
-    system.activationScripts = lib.mkIf (!(options ? home)) {
-      # Set up the Homebrew prefixes before nix-darwin's homebrew
-      # activation takes place.
-      homebrew.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew)) (lib.mkBefore ''
-        ${config.system.activationScripts.setup-homebrew.text}
+      system.activationScripts = {
+        homebrew.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew)) (lib.mkBefore ''
+          ${config.system.activationScripts.setup-homebrew.text}
+        '');
+        setup-homebrew.text = ''
+          >&2 echo "setting up Homebrew prefixes..."
+          ${setupHomebrew}
+        '';
+      };
+
+      system.checks.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew) && config.homebrew.enable) (lib.mkBefore ''
+        # Ignore unused variable in nix-darwin versions without it
+        # shellcheck disable=SC2034
+        INSTALLING_HOMEBREW=1
       '');
-      setup-homebrew.text = ''
+    })
+
+    # Home Manager only
+    (lib.mkIf (cfg.enable && (options ? home)) {
+      home.packages = [ brewLauncher ];
+
+      home.activation.setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''
         >&2 echo "setting up Homebrew prefixes..."
         ${setupHomebrew}
       '';
-    };
-
-    # Home Manager activation
-    home.activation = lib.optionalAttrs (options ? home) {
-      setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''
-        echo "DEBUG: nix-homebrew setup-homebrew activation running"
-        echo "DEBUG: cfg.enable = ${toString cfg.enable}"
-        echo "DEBUG: cfg.user = ${cfg.user}"
-        >&2 echo "setting up Homebrew prefixes..."
-        ${setupHomebrew}
-      '';
-    };
-
-    # disable the install homebrew check
-    # see https://github.com/LnL7/nix-darwin/pull/1178 and https://github.com/zhaofengli/nix-homebrew/issues/45
-    system.checks.text = lib.mkIf (!(options ? home) && pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew) && config.homebrew.enable) (lib.mkBefore ''
-      # Ignore unused variable in nix-darwin versions without it
-      # shellcheck disable=SC2034
-      INSTALLING_HOMEBREW=1
-    '');
-  };
+    })
+  ];
+    })
+  ];
 }

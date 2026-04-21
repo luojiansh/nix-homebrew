@@ -646,7 +646,7 @@ in {
     environment.systemPackages = lib.mkIf (!(options ? home)) [ brewLauncher ];
 
     # Home Manager package management
-    home.packages = lib.mkIf (options ? home) [ brewLauncher ];
+    home.packages = lib.optionals (options ? home) [ brewLauncher ];
 
     # System-level activation
     system.activationScripts = lib.mkIf (!(options ? home)) {
@@ -662,7 +662,7 @@ in {
     };
 
     # Home Manager activation
-    home.activation = lib.mkIf (options ? home) {
+    home.activation = lib.optionalAttrs (options ? home) {
       setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''
         >&2 echo "setting up Homebrew prefixes..."
         ${setupHomebrew}

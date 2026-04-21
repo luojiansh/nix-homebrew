@@ -582,6 +582,9 @@ in {
     # Home Manager activation
     home.activation = lib.optionalAttrs (options ? home) {
       setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        echo "DEBUG: nix-homebrew setup-homebrew activation running"
+        echo "DEBUG: cfg.enable = ${toString cfg.enable}"
+        echo "DEBUG: cfg.user = ${cfg.user}"
         >&2 echo "setting up Homebrew prefixes..."
         ${setupHomebrew}
       '';

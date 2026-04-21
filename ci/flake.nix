@@ -39,6 +39,7 @@
       };
 
       githubPlatforms = {
+        "x86_64-linux" = "ubuntu-24.04";
         "aarch64-darwin" = "macos-26";
         "x86_64-darwin" = "macos-26";
       };
@@ -52,6 +53,7 @@
                 self = null;
                 pkgs = null;
                 nix-darwin = null;
+                nixpkgs = null;
               }
             );
           };
@@ -82,10 +84,24 @@
               pkgs = inputs'.nixpkgs.legacyPackages.${system};
               tests = import ./tests.nix {
                 inherit self pkgs;
+                inherit (inputs') nixpkgs;
                 inherit (inputs') nix-darwin;
               };
             in
             tests.${test};
+
+          enabledMatrixForSystem =
+            system:
+            lib.filterAttrs (
+              _:
+              setup:
+              (builtins.tryEval (
+                assembleTest {
+                  inherit system;
+                  inherit (setup) release test;
+                }
+              )).success
+            ) matrix;
 
           ciTests = lib.genAttrs supportedSystems (
             system:
@@ -95,7 +111,7 @@
               assembleTest {
                 inherit system release test;
               }
-            ) matrix
+            ) (enabledMatrixForSystem system)
           );
           ciScripts = lib.mapAttrs (
             system: tests: lib.mapAttrs (name: test: test.config.system.build.ci-script) tests

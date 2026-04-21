@@ -94,17 +94,22 @@ let
   brewLauncher = pkgs.writeScriptBin "brew" (''
     #!/bin/bash
     set -euo pipefail
-    cur_arch=$(/usr/bin/uname -m)
+    cur_os=$(uname -s)
+    cur_arch=$(uname -m)
+  '' + lib.optionalString (cfg.prefixes.${cfg.defaultLinuxPrefix}.enable) ''
+    if [[ "$cur_os" == "Linux" ]]; then
+      exec "${cfg.prefixes.${cfg.defaultLinuxPrefix}.prefix}/bin/brew" "$@"
+    fi
   '' + lib.optionalString (cfg.prefixes.${cfg.defaultArm64Prefix}.enable) ''
-    if [[ "$cur_arch" == "arm64" ]]; then
+    if [[ "$cur_os" == "Darwin" ]] && [[ "$cur_arch" == "arm64" ]]; then
       exec "${cfg.prefixes.${cfg.defaultArm64Prefix}.prefix}/bin/brew" "$@"
     fi
   '' + lib.optionalString (cfg.prefixes.${cfg.defaultIntelPrefix}.enable) ''
-    if [[ "$cur_arch" == "x86_64" ]]; then
+    if [[ "$cur_os" == "Darwin" ]] && [[ "$cur_arch" == "x86_64" ]]; then
       exec "${cfg.prefixes.${cfg.defaultIntelPrefix}.prefix}/bin/brew" "$@"
     fi
   '' + ''
-    >&2 echo "nix-homebrew: No Homebrew installation available for $cur_arch"
+    >&2 echo "nix-homebrew: No Homebrew installation available for $cur_os/$cur_arch"
     exit 1
   '');
 
@@ -155,7 +160,14 @@ let
     source ${./utils.sh}
 
     NIX_HOMEBREW_UID=$(id -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
-    NIX_HOMEBREW_GID=$(dscl . -read "/Groups/${cfg.group}" | awk '($1 == "PrimaryGroupID:") { print $2 }' || (error "Failed to get GID of ${cfg.group}"; exit 1))
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      NIX_HOMEBREW_GID=$(dscl . -read "/Groups/${cfg.group}" | awk '($1 == "PrimaryGroupID:") { print $2 }' || true)
+    else
+      NIX_HOMEBREW_GID=$(getent group "${cfg.group}" | awk -F: '{ print $3 }' || true)
+    fi
+    if [[ -z "''${NIX_HOMEBREW_GID}" ]]; then
+      NIX_HOMEBREW_GID=$(id -g "${cfg.user}" || (error "Failed to get a group ID for ${cfg.user}"; exit 1))
+    fi
 
     is_in_nix_store() {
       # /nix/store/anything -> inside
@@ -304,7 +316,8 @@ let
     substituteInPlace "$out/Library/Homebrew/cmd/update.sh" \
       --replace-fail 'for DIR in "''${HOMEBREW_REPOSITORY}"' "for DIR in "
 
-    # Disable vendored Ruby
+  '' + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+    # Disable vendored Ruby (Darwin only)
     #
     # Homebrew passes --disable=gems,rubyopt ($HOMEBREW_RUBY_DISABLE_OPTIONS)
     # and inserts vendored libraries into LOAD_PATH (vendor/bundle/bundler/setup.rb, standalone/init.rb).
@@ -404,7 +417,7 @@ in {
           The group owning the Homebrew directories.
         '';
         type = types.str;
-        default = "admin";
+        default = if pkgs.stdenv.hostPlatform.isDarwin then "admin" else "users";
       };
 
       # Advanced options
@@ -433,6 +446,14 @@ in {
         internal = true;
         type = types.str;
         default = "/usr/local";
+      };
+      defaultLinuxPrefix = lib.mkOption {
+        description = ''
+          Key of the default Homebrew prefix for Linux.
+        '';
+        internal = true;
+        type = types.str;
+        default = "/home/linuxbrew/.linuxbrew";
       };
       extraEnv = lib.mkOption {
         description = ''
@@ -472,13 +493,13 @@ in {
   config = lib.mkIf (cfg.enable) {
     assertions = [
       {
-        assertion = cfg.enableRosetta -> pkgs.stdenv.hostPlatform.isAarch64;
+        assertion = cfg.enableRosetta -> (pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64);
         message = "nix-homebrew.enableRosetta is set to true but this isn't an Apple Silicon Mac";
       }
       {
         # nix-darwin has migrated away from user activation in
         # <https://github.com/LnL7/nix-darwin/pull/1341>.
-        assertion = options.system ? primaryUser;
+        assertion = !pkgs.stdenv.hostPlatform.isDarwin || options.system ? primaryUser;
         message = "Please update your nix-darwin version to use system-wide activation";
       }
     ];
@@ -486,13 +507,18 @@ in {
     nix-homebrew = {
       prefixes = {
         "/opt/homebrew" = {
-          enable = pkgs.stdenv.hostPlatform.isAarch64;
+          enable = pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64;
           library = "/opt/homebrew/Library";
           taps = cfg.taps;
         };
         "/usr/local" = {
-          enable = pkgs.stdenv.hostPlatform.isx86_64 || cfg.enableRosetta;
+          enable = pkgs.stdenv.hostPlatform.isDarwin && (pkgs.stdenv.hostPlatform.isx86_64 || cfg.enableRosetta);
           library = "/usr/local/Homebrew/Library";
+          taps = cfg.taps;
+        };
+        "/home/linuxbrew/.linuxbrew" = {
+          enable = pkgs.stdenv.hostPlatform.isLinux;
+          library = "/home/linuxbrew/.linuxbrew/Homebrew/Library";
           taps = cfg.taps;
         };
       };
@@ -512,12 +538,13 @@ in {
     '';
 
     environment.systemPackages = [ brewLauncher ];
+
     system.activationScripts = {
       # Set up the Homebrew prefixes before nix-darwin's homebrew
       # activation takes place.
-      homebrew.text = lib.mkBefore ''
+      homebrew.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew)) (lib.mkBefore ''
         ${config.system.activationScripts.setup-homebrew.text}
-      '';
+      '');
       setup-homebrew.text = ''
         >&2 echo "setting up Homebrew prefixes..."
         ${setupHomebrew}
@@ -526,7 +553,7 @@ in {
 
     # disable the install homebrew check
     # see https://github.com/LnL7/nix-darwin/pull/1178 and https://github.com/zhaofengli/nix-homebrew/issues/45
-    system.checks.text = lib.mkIf config.homebrew.enable (lib.mkBefore ''
+    system.checks.text = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && (options ? homebrew) && config.homebrew.enable) (lib.mkBefore ''
       # Ignore unused variable in nix-darwin versions without it
       # shellcheck disable=SC2034
       INSTALLING_HOMEBREW=1

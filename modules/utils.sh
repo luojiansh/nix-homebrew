@@ -13,15 +13,28 @@
 
 # TODO: Use Nix-provided utils
 # GNU stat behaves differently
-STAT_PRINTF=("/usr/bin/stat" "-f")
-PERMISSION_FORMAT="%A"
+if [[ "$(uname -s)" == "Darwin" ]]
+then
+  STAT_PRINTF=("/usr/bin/stat" "-f")
+  PERMISSION_FORMAT="%A"
 
-CHMOD=("/bin/chmod")
-CHOWN=("/usr/sbin/chown")
-CHGRP=("/usr/bin/chgrp")
-MKDIR=("/bin/mkdir" "-p")
-TOUCH=("/usr/bin/touch")
-INSTALL=("/usr/bin/install" -d -o "root" -g "wheel" -m "0755")
+  CHMOD=("/bin/chmod")
+  CHOWN=("/usr/sbin/chown")
+  CHGRP=("/usr/bin/chgrp")
+  MKDIR=("/bin/mkdir" "-p")
+  TOUCH=("/usr/bin/touch")
+  INSTALL=("/usr/bin/install" -d -o "root" -g "wheel" -m "0755")
+else
+  STAT_PRINTF=("stat" "--printf")
+  PERMISSION_FORMAT="%a"
+
+  CHMOD=("chmod")
+  CHOWN=("chown")
+  CHGRP=("chgrp")
+  MKDIR=("mkdir" "-p")
+  TOUCH=("touch")
+  INSTALL=("install" -d -o "root" -g "root" -m "0755")
+fi
 
 # string formatters
 if [[ -t 1 ]]

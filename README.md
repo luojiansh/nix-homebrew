@@ -1,15 +1,20 @@
 # nix-homebrew
 
-`nix-homebrew` manages Homebrew installations on macOS using [nix-darwin](https://github.com/LnL7/nix-darwin).
+`nix-homebrew` manages Homebrew installations on macOS and Linux.
 It pins the Homebrew version and optionally allows for declarative specification of taps.
 
 `nix-homebrew` only installs Homebrew itself and does not manage any package installed by it.
-For declarative formula/cask management, use the [`homebrew.*` options](https://daiderd.com/nix-darwin/manual/index.html#opt-homebrew.enable) in nix-darwin which work well in tandem with `nix-homebrew`.
+For declarative formula/cask management on macOS, use the [`homebrew.*` options](https://daiderd.com/nix-darwin/manual/index.html#opt-homebrew.enable) in nix-darwin which work well in tandem with `nix-homebrew`.
 
 
 ## Quick Start
 
-First of all, you must have [nix-darwin](https://github.com/LnL7/nix-darwin) configured already.
+First of all, choose your platform module:
+
+- macOS: `nix-homebrew.darwinModules.nix-homebrew`
+- Linux (NixOS): `nix-homebrew.nixosModules.nix-homebrew`
+
+For macOS, you must have [nix-darwin](https://github.com/LnL7/nix-darwin) configured already.
 Add the following to your Flake inputs:
 
 ```nix
@@ -116,6 +121,8 @@ If you've already installed Homebrew with the official script, you can let `nix-
 ```
 
 ## Non-Standard Prefixes
+
+On Linux, the default prefix follows Homebrew-on-Linux and is `/home/linuxbrew/.linuxbrew`.
 
 Extra prefixes may be configured:
 

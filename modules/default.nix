@@ -530,37 +530,24 @@ in {
         };
       };
 
-      # Shell integrations
-      # For system-level (nix-darwin/NixOS)
-      programs.bash.interactiveShellInit = lib.mkIf (cfg.enableBashIntegration && !(options ? home)) ''
-        eval "$(brew shellenv 2>/dev/null || true)"
-      '';
-
-      programs.zsh.interactiveShellInit = lib.mkIf (cfg.enableZshIntegration && !(options ? home)) ''
-        eval "$(brew shellenv 2>/dev/null || true)"
-      '';
-
-      programs.fish.interactiveShellInit = lib.mkIf (cfg.enableFishIntegration && !(options ? home)) ''
-        brew shellenv 2>/dev/null | source || true
-      '';
-
-      # For home-manager
-      programs.bash.initExtra = lib.mkIf (cfg.enableBashIntegration && (options ? home)) ''
-        eval "$(brew shellenv 2>/dev/null || true)"
-      '';
-
-      programs.zsh.initExtra = lib.mkIf (cfg.enableZshIntegration && (options ? home)) ''
-        eval "$(brew shellenv 2>/dev/null || true)"
-      '';
-
-      programs.fish.initExtra = lib.mkIf (cfg.enableFishIntegration && (options ? home)) ''
-        brew shellenv 2>/dev/null | source || true
-      '';
     }
 
     (lib.optionalAttrs (!(options ? home)) {
       # System-level package management
       environment.systemPackages = [ brewLauncher ];
+
+      # Shell integrations
+      programs.bash.interactiveShellInit = lib.mkIf cfg.enableBashIntegration ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
+
+      programs.zsh.interactiveShellInit = lib.mkIf cfg.enableZshIntegration ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
+
+      programs.fish.interactiveShellInit = lib.mkIf cfg.enableFishIntegration ''
+        brew shellenv 2>/dev/null | source || true
+      '';
 
       # System-level activation
       system.activationScripts = {
@@ -587,6 +574,19 @@ in {
     (lib.optionalAttrs (options ? home) {
       # Home Manager package management
       home.packages = [ brewLauncher ];
+
+      # Shell integrations
+      programs.bash.initExtra = lib.mkIf cfg.enableBashIntegration ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
+
+      programs.zsh.initExtra = lib.mkIf cfg.enableZshIntegration ''
+        eval "$(brew shellenv 2>/dev/null || true)"
+      '';
+
+      programs.fish.initExtra = lib.mkIf cfg.enableFishIntegration ''
+        brew shellenv 2>/dev/null | source || true
+      '';
 
       # Home Manager activation
       home.activation.setup-homebrew = lib.hm.dag.entryAfter ["writeBoundary"] ''

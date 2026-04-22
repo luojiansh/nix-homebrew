@@ -161,9 +161,9 @@ let
 
     NIX_HOMEBREW_UID=$(id -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      NIX_HOMEBREW_GID=$(dscl . -read "/Groups/${cfg.group}" | awk '($1 == "PrimaryGroupID:") { print $2 }' || true)
+      NIX_HOMEBREW_GID=$(dscl . -read "/Groups/${cfg.group}" | /usr/bin/awk '($1 == "PrimaryGroupID:") { print $2 }' || true)
     else
-      NIX_HOMEBREW_GID=$(getent group "${cfg.group}" | awk -F: '{ print $3 }' || true)
+      NIX_HOMEBREW_GID=$(id -g "${cfg.user}" || true)
     fi
     if [[ -z "''${NIX_HOMEBREW_GID}" ]]; then
       NIX_HOMEBREW_GID=$(id -g "${cfg.user}" || (error "Failed to get a group ID for ${cfg.user}"; exit 1))
@@ -193,6 +193,14 @@ let
 
     is_occupied() {
       [[ -e "$1" ]] && ([[ ! -L "$1" ]] || ! is_in_nix_store "$1")
+    }
+
+    ln_force() {
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        /bin/ln -shf "$1" "$2"
+      else
+        /bin/ln -sfn "$1" "$2"
+      fi
     }
 
     ${lib.concatMapStrings setupPrefix enabledPrefixes}
@@ -247,7 +255,7 @@ let
     fi
 
     # Synthetize $HOMEBREW_LIBRARY
-    /bin/ln -shf "${brew}/Library/Homebrew" "$HOMEBREW_LIBRARY/Homebrew"
+    ln_force "${brew}/Library/Homebrew" "$HOMEBREW_LIBRARY/Homebrew"
     ${setupTaps prefix.taps}
 
     # Make a fake $HOMEBREW_REPOSITORY
@@ -263,7 +271,7 @@ let
       error "An existing $BIN_BREW is in the way"
       exit 1
     fi
-    /bin/ln -shf "${makeBinBrew prefix}" "$BIN_BREW"
+    ln_force "${makeBinBrew prefix}" "$BIN_BREW"
   '';
 
   setupTaps = taps:
@@ -287,7 +295,7 @@ let
       "''${MKDIR[@]}" "${namespaceDir}"
       "''${CHOWN[@]}" "$NIX_HOMEBREW_UID:$NIX_HOMEBREW_GID" "${namespaceDir}"
       "''${CHMOD[@]}" "ug=rwx" "${namespaceDir}"
-      /bin/ln -shf "${target}" "${tapDir}"
+      ln_force "${target}" "${tapDir}"
     '') (builtins.attrNames taps)
 
     # Fully declarative taps
@@ -305,7 +313,7 @@ let
         exit 1
       fi
 
-      /bin/ln -shf "${env}" "$HOMEBREW_LIBRARY/Taps"
+      ln_force "${env}" "$HOMEBREW_LIBRARY/Taps"
     '';
 
   patchBrew = brew: pkgs.runCommandLocal "${brew.name or "brew"}-patched" {} (''
@@ -584,7 +592,7 @@ in {
         eval "$(brew shellenv 2>/dev/null || true)"
       '';
 
-      programs.fish.initExtra = lib.mkIf cfg.enableFishIntegration ''
+      programs.fish.interactiveShellInit = lib.mkIf cfg.enableFishIntegration ''
         brew shellenv 2>/dev/null | source || true
       '';
 

@@ -4,7 +4,7 @@
 (import ./setup-common.nix { inherit lib pkgs config; }) {
   utilsFile = ./utils-darwin.sh;
   gidScript = ''
-    NIX_HOMEBREW_GID=$(dscl . -read "/Groups/${config.nix-homebrew.group}" | /usr/bin/awk '($1 == "PrimaryGroupID:") { print $2 }' || (error "Failed to get GID of ${config.nix-homebrew.group}"; exit 1))
+    NIX_HOMEBREW_GID=$(/usr/bin/dscl . -read "/Groups/${config.nix-homebrew.group}" | /usr/bin/awk '($1 == "PrimaryGroupID:") { print $2 }' || (error "Failed to get GID of ${config.nix-homebrew.group}"; exit 1))
   '';
   lnForceFunction = ''
     ln_force() {
@@ -27,7 +27,7 @@
     fi
   '';
   postSetupSnippet = ''
-    if test -n "${toString config.nix-homebrew.enableRosetta}" && ! pgrep -q oahd; then
+    if test -n "${toString config.nix-homebrew.enableRosetta}" && ! /usr/bin/pgrep -q oahd; then
       warn "The Intel Homebrew prefix has been set up, but Rosetta isn't installed yet."
       ohai "Run ''${tty_bold}softwareupdate --install-rosetta''${tty_reset} to install it."
     fi

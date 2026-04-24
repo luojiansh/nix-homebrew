@@ -52,7 +52,7 @@ let
     ${setupTaps prefix.taps}
 
     # Make a fake $HOMEBREW_REPOSITORY
-    rm -rf "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
+    /bin/rm -rf "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
     "''${MKDIR[@]}" "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix/.git"
     "''${CHOWN[@]}" "$NIX_HOMEBREW_UID:$NIX_HOMEBREW_GID" "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
     "''${CHMOD[@]}" 775 "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix/"{,.git}
@@ -117,7 +117,7 @@ in
     source ${./utils-common.sh}
     source ${utilsFile}
 
-    NIX_HOMEBREW_UID=$(id -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
+    NIX_HOMEBREW_UID=$(/usr/bin/id -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
     ${gidScript}
 
     is_in_nix_store() {
@@ -129,7 +129,7 @@ in
 
       if [[ -e "$1" ]]
       then
-        path="$(readlink -f $1)"
+        path=$(/usr/bin/readlink -f $1)
       else
         path="$1"
       fi

@@ -13,15 +13,34 @@
 
 # TODO: Use Nix-provided utils
 # GNU stat behaves differently
-STAT_PRINTF=("/usr/bin/stat" "-f")
-PERMISSION_FORMAT="%A"
+if [[ "$(uname -s)" == "Darwin" ]]
+then
+  STAT_PRINTF=("/usr/bin/stat" "-f")
+  PERMISSION_FORMAT="%A"
 
-CHMOD=("/bin/chmod")
-CHOWN=("/usr/sbin/chown")
-CHGRP=("/usr/bin/chgrp")
-MKDIR=("/bin/mkdir" "-p")
-TOUCH=("/usr/bin/touch")
-INSTALL=("/usr/bin/install" -d -o "root" -g "wheel" -m "0755")
+  CHMOD=("/bin/chmod")
+  CHOWN=("/usr/sbin/chown")
+  CHGRP=("/usr/bin/chgrp")
+  MKDIR=("/bin/mkdir" "-p")
+  TOUCH=("/usr/bin/touch")
+  INSTALL=("/usr/bin/install" -d -o "root" -g "wheel" -m "0755")
+else
+  STAT_PRINTF=("stat" "--printf")
+  PERMISSION_FORMAT="%a"
+
+  CHMOD=("chmod")
+  CHOWN=("chown")
+  CHGRP=("chgrp")
+  MKDIR=("mkdir" "-p")
+  TOUCH=("touch")
+  INSTALL=("install" -d -o "root" -g "root" -m "0755")
+fi
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  SUDO=("/usr/bin/sudo")
+else
+  SUDO=()
+fi
 
 # string formatters
 if [[ -t 1 ]]
@@ -189,47 +208,47 @@ initialize_prefix() {
   then
     if [[ "${#chmods[@]}" -gt 0 ]]
     then
-      "${CHMOD[@]}" "u+rwx" "${chmods[@]}"
+      "${SUDO[@]}" "${CHMOD[@]}" "u+rwx" "${chmods[@]}"
     fi
     if [[ "${#group_chmods[@]}" -gt 0 ]]
     then
-      "${CHMOD[@]}" "g+rwx" "${group_chmods[@]}"
+      "${SUDO[@]}" "${CHMOD[@]}" "g+rwx" "${group_chmods[@]}"
     fi
     if [[ "${#user_chmods[@]}" -gt 0 ]]
     then
-      "${CHMOD[@]}" "go-w" "${user_chmods[@]}"
+      "${SUDO[@]}" "${CHMOD[@]}" "go-w" "${user_chmods[@]}"
     fi
     if [[ "${#chowns[@]}" -gt 0 ]]
     then
-      "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${chowns[@]}"
+      "${SUDO[@]}" "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${chowns[@]}"
     fi
     if [[ "${#chgrps[@]}" -gt 0 ]]
     then
-      "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${chgrps[@]}"
+      "${SUDO[@]}" "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${chgrps[@]}"
     fi
   else
-    "${INSTALL[@]}" "${HOMEBREW_PREFIX}"
+    "${SUDO[@]}" "${INSTALL[@]}" "${HOMEBREW_PREFIX}"
   fi
 
   if [[ "${#mkdirs[@]}" -gt 0 ]]
   then
-    "${MKDIR[@]}" "${mkdirs[@]}"
-    "${CHMOD[@]}" "ug=rwx" "${mkdirs[@]}"
+    "${SUDO[@]}" "${MKDIR[@]}" "${mkdirs[@]}"
+    "${SUDO[@]}" "${CHMOD[@]}" "ug=rwx" "${mkdirs[@]}"
     if [[ "${#mkdirs_user_only[@]}" -gt 0 ]]
     then
-      "${CHMOD[@]}" "go-w" "${mkdirs_user_only[@]}"
+      "${SUDO[@]}" "${CHMOD[@]}" "go-w" "${mkdirs_user_only[@]}"
     fi
-    "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${mkdirs[@]}"
-    "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${mkdirs[@]}"
+    "${SUDO[@]}" "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${mkdirs[@]}"
+    "${SUDO[@]}" "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${mkdirs[@]}"
   fi
 
   if ! [[ -d "${HOMEBREW_LIBRARY}" ]]
   then
-    "${MKDIR[@]}" "${HOMEBREW_LIBRARY}"
+    "${SUDO[@]}" "${MKDIR[@]}" "${HOMEBREW_LIBRARY}"
   fi
-  "${CHOWN[@]}" "-R" "${NIX_HOMEBREW_UID}:${NIX_HOMEBREW_GID}" "${HOMEBREW_LIBRARY}"
+  "${SUDO[@]}" "${CHOWN[@]}" "-R" "${NIX_HOMEBREW_UID}:${NIX_HOMEBREW_GID}" "${HOMEBREW_LIBRARY}"
 
-  "${TOUCH[@]}" "${HOMEBREW_PREFIX}/.managed_by_nix_darwin"
+  "${SUDO[@]}" "${TOUCH[@]}" "${HOMEBREW_PREFIX}/.managed_by_nix_darwin"
 }
 
 # vim: set et ts=2 sw=2:

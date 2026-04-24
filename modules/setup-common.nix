@@ -129,7 +129,7 @@ in
 
       if [[ -e "$1" ]]
       then
-        path=$(/usr/bin/readlink -f $1)
+        path=$(/usr/bin/readlink -f "$1")
       else
         path="$1"
       fi

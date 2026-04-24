@@ -8,24 +8,27 @@ in
 lib.mkIf (options ? home) {
   # Platform-specific prefix defaults for Home Manager
   # (linux.nix and darwin.nix are not imported in the homeManagerModules path)
-  nix-homebrew.prefixes = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
-    "/home/linuxbrew/.linuxbrew" = {
-      enable = true;
-      library = "/home/linuxbrew/.linuxbrew/Homebrew/Library";
-      taps = cfg.taps;
-    };
-  } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-    "/opt/homebrew" = {
-      enable = pkgs.stdenv.hostPlatform.isAarch64;
-      library = "/opt/homebrew/Library";
-      taps = cfg.taps;
-    };
-    "/usr/local" = {
-      enable = pkgs.stdenv.hostPlatform.isx86_64 || cfg.enableRosetta;
-      library = "/usr/local/Homebrew/Library";
-      taps = cfg.taps;
-    };
-  };
+  nix-homebrew.prefixes = lib.mkMerge [
+    (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
+      "/home/linuxbrew/.linuxbrew" = {
+        enable = true;
+        library = "/home/linuxbrew/.linuxbrew/Homebrew/Library";
+        taps = cfg.taps;
+      };
+    })
+    (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+      "/opt/homebrew" = {
+        enable = pkgs.stdenv.hostPlatform.isAarch64;
+        library = "/opt/homebrew/Library";
+        taps = cfg.taps;
+      };
+      "/usr/local" = {
+        enable = pkgs.stdenv.hostPlatform.isx86_64 || cfg.enableRosetta;
+        library = "/usr/local/Homebrew/Library";
+        taps = cfg.taps;
+      };
+    })
+  ];
 
   nix-homebrew.group = lib.mkDefault (
     if pkgs.stdenv.hostPlatform.isDarwin then "admin"

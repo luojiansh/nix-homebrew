@@ -324,9 +324,6 @@ let
     substituteInPlace "$out/Library/Homebrew/cmd/update.sh" \
       --replace-fail 'for DIR in "''${HOMEBREW_REPOSITORY}"' "for DIR in "
 
-  '' + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-    # Disable vendored Ruby (Darwin only)
-    #
     # Homebrew passes --disable=gems,rubyopt ($HOMEBREW_RUBY_DISABLE_OPTIONS)
     # and inserts vendored libraries into LOAD_PATH (vendor/bundle/bundler/setup.rb, standalone/init.rb).
     # Instead of re-enabling gems, we add in additional required gems into LOAD_PATH.

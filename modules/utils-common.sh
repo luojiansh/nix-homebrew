@@ -1,40 +1,14 @@
-# Snippets from the Homebrew install script.
+# Shared utilities for Homebrew setup.
 #
-# BSD 2-Clause License
-# Copyright (c) 2009-present, Homebrew contributors
-# All rights reserved.
-#
-# Uses:
-#
-# - HOMEBREW_PREFIX
-# - HOMEBREW_LIBRARY
-# - NIX_HOMEBREW_UID
-# - NIX_HOMEBREW_GID
-
-# TODO: Use Nix-provided utils
-# GNU stat behaves differently
-if [[ "$(uname -s)" == "Darwin" ]]
-then
-  STAT_PRINTF=("/usr/bin/stat" "-f")
-  PERMISSION_FORMAT="%A"
-
-  CHMOD=("/bin/chmod")
-  CHOWN=("/usr/sbin/chown")
-  CHGRP=("/usr/bin/chgrp")
-  MKDIR=("/bin/mkdir" "-p")
-  TOUCH=("/usr/bin/touch")
-  INSTALL=("/usr/bin/install" -d -o "root" -g "wheel" -m "0755")
-else
-  STAT_PRINTF=("stat" "--printf")
-  PERMISSION_FORMAT="%a"
-
-  CHMOD=("chmod")
-  CHOWN=("chown")
-  CHGRP=("chgrp")
-  MKDIR=("mkdir" "-p")
-  TOUCH=("touch")
-  INSTALL=("install" -d -o "root" -g "root" -m "0755")
-fi
+# This file expects these variables to be defined by the caller before sourcing:
+# - STAT_PRINTF
+# - PERMISSION_FORMAT
+# - CHMOD
+# - CHOWN
+# - CHGRP
+# - MKDIR
+# - TOUCH
+# - INSTALL
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   SUDO=("/usr/bin/sudo")
@@ -95,10 +69,6 @@ exists_but_not_writable() {
   [[ -e "$1" ]] && ! [[ -r "$1" && -w "$1" && -x "$1" ]]
 }
 
-user_only_chmod() {
-  [[ -d "$1" ]] && [[ "$(get_permission "$1")" != 75[0145] ]]
-}
-
 get_owner() {
   "${STAT_PRINTF[@]}" "%u" "$1"
 }
@@ -115,7 +85,7 @@ file_not_grpowned() {
   [[ " ${NIX_HOMEBREW_GID} " != *" $(get_group "$1") "* ]]
 }
 
-# HOMEBREW_PREFIX
+# HOMEBREW_PREFIX initialization
 initialize_prefix() {
   # Keep relatively in sync with
   # https://github.com/Homebrew/brew/blob/master/Library/Homebrew/keg.rb

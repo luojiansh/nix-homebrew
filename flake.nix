@@ -3,7 +3,7 @@
 
   inputs = {
     brew-src = {
-      url = "github:Homebrew/brew/5.1.7;
+      url = "github:Homebrew/brew/5.1.7";
       flake = false;
     };
   };
@@ -16,10 +16,8 @@
       inherit self brew-src;
     };
 
-    moduleWithDefaults = { lib, ... }: {
-      imports = [
-        ./modules
-      ];
+    mkModuleWithDefaults = imports: { lib, ... }: {
+      inherit imports;
       nix-homebrew.package = lib.mkOptionDefault (brew-src // {
         name = "brew-${brewVersion}";
         version = brewVersion;
@@ -27,19 +25,28 @@
     };
   in {
     darwinModules = rec {
-      nix-homebrew = moduleWithDefaults;
+      nix-homebrew = mkModuleWithDefaults [
+        ./modules/common.nix
+        ./modules/darwin.nix
+      ];
 
       default = nix-homebrew;
     };
 
     nixosModules = rec {
-      nix-homebrew = moduleWithDefaults;
+      nix-homebrew = mkModuleWithDefaults [
+        ./modules/common.nix
+        ./modules/linux.nix
+      ];
 
       default = nix-homebrew;
     };
 
     homeManagerModules = rec {
-      nix-homebrew = moduleWithDefaults;
+      nix-homebrew = mkModuleWithDefaults [
+        ./modules/common.nix
+        ./modules/home-manager.nix
+      ];
 
       default = nix-homebrew;
     };

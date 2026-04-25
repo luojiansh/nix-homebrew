@@ -43,7 +43,7 @@ lib.mkIf (options ? home) {
     eval "$(brew shellenv 2>/dev/null || true)"
   '';
 
-  programs.zsh.initExtra = lib.mkIf cfg.enableZshIntegration ''
+  programs.zsh.initContent = lib.mkIf cfg.enableZshIntegration ''
     eval "$(brew shellenv 2>/dev/null || true)"
   '';
 

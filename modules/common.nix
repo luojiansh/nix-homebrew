@@ -18,10 +18,11 @@ let
 
   # Sadly, we cannot replace coreutils since the GNU implementations
   # behave differently.
-  # On Linux (NixOS), standard tools aren't at /usr/bin or /bin, so we
-  # include the NixOS system profile paths instead.
+  # On NixOS, standard tools aren't at /usr/bin or /bin. We include
+  # Nix profile paths as additional fallbacks — they are harmless
+  # no-ops on systems where they don't exist (macOS, Ubuntu, Fedora).
   runtimePath = lib.makeBinPath [ pkgs.gitMinimal ]
-    + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ":/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin";
+    + ":/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
 
   prefixType = types.submodule ({ name, ... }: {
     options = {

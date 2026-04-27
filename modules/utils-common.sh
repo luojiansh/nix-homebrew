@@ -10,8 +10,8 @@
 # - TOUCH
 # - INSTALL
 
-if [[ "${EUID:-$(/usr/bin/id -u)}" -ne 0 ]]; then
-  SUDO=("/usr/bin/sudo")
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  SUDO=("$(command -v sudo)")
 else
   SUDO=()
 fi

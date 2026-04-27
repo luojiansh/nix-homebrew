@@ -18,7 +18,8 @@ let
 
   # Sadly, we cannot replace coreutils since the GNU implementations
   # behave differently.
-  runtimePath = lib.makeBinPath [ pkgs.gitMinimal ];
+  runtimePath = lib.makeBinPath [ pkgs.gitMinimal ]
+    + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ":/run/current-system/sw/bin";
 
   prefixType = types.submodule ({ name, ... }: {
     options = {

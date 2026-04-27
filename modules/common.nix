@@ -18,8 +18,18 @@ let
 
   # Sadly, we cannot replace coreutils since the GNU implementations
   # behave differently.
-  runtimePath = lib.makeBinPath [ pkgs.gitMinimal ]
-    + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ":/run/current-system/sw/bin";
+  # On Linux (NixOS), standard tools aren't at /usr/bin or /bin, so we
+  # add them explicitly. Homebrew's internal code reconstructs PATH and
+  # may drop system paths, so Nix store paths are more reliable.
+  runtimePath = lib.makeBinPath ([ pkgs.gitMinimal ]
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      pkgs.gnutar
+      pkgs.gzip
+      pkgs.gnugrep
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.findutils
+    ]);
 
   prefixType = types.submodule ({ name, ... }: {
     options = {

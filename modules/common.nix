@@ -93,6 +93,12 @@ let
     exit 1
   '');
 
+  # Platform-appropriate paths for bash and env.
+  # On Darwin, we must use /bin/bash for `arch -x86_64` compatibility.
+  # On Linux (NixOS), these paths don't exist so we use Nix store paths.
+  bashPath = if pkgs.stdenv.hostPlatform.isDarwin then "/bin/bash" else "${pkgs.bash}/bin/bash";
+  envPath = if pkgs.stdenv.hostPlatform.isDarwin then "/usr/bin/env" else "${pkgs.coreutils}/bin/env";
+
   # Prefix-specific bin/brew
   #
   # No prefix/library/repo auto-detection, everything is configured by Nix.
@@ -128,6 +134,8 @@ let
 
     replacements = {
       out = placeholder "out";
+      bash = bashPath;
+      env = envPath;
       inherit runtimePath;
       inherit (prefix) prefix library;
     };

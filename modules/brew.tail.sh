@@ -177,7 +177,7 @@ if [[ "${1:-}" == "bundle" ]]
 then
   if [[ "${2:-}" == "exec" || "${2:-}" == "env" || "${2:-}" == "sh" ]]
   then
-    exec /bin/bash -p "${HOMEBREW_LIBRARY}/Homebrew/brew.sh" "$@"
+    exec @bash@ -p "${HOMEBREW_LIBRARY}/Homebrew/brew.sh" "$@"
     exit $?
   fi
 fi
@@ -225,4 +225,4 @@ fi
 
 unset VAR ENV_VAR_NAMES
 
-exec /usr/bin/env -i "${FILTERED_ENV[@]}" /bin/bash -p "${HOMEBREW_LIBRARY}/Homebrew/brew.sh" "$@"
+exec @env@ -i "${FILTERED_ENV[@]}" @bash@ -p "${HOMEBREW_LIBRARY}/Homebrew/brew.sh" "$@"

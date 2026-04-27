@@ -52,7 +52,7 @@ let
     ${setupTaps prefix.taps}
 
     # Make a fake $HOMEBREW_REPOSITORY
-    /bin/rm -rf "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
+    rm -rf "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
     "''${MKDIR[@]}" "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix/.git"
     "''${CHOWN[@]}" "$NIX_HOMEBREW_UID:$NIX_HOMEBREW_GID" "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
     "''${CHMOD[@]}" 775 "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix/"{,.git}

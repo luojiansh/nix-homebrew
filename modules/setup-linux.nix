@@ -4,11 +4,11 @@
 (import ./setup-common.nix { inherit lib pkgs config; }) {
   utilsFile = ./utils-linux.sh;
   gidScript = ''
-    NIX_HOMEBREW_GID=$(/usr/bin/id -g "${config.nix-homebrew.user}" || (error "Failed to get a group ID for ${config.nix-homebrew.user}"; exit 1))
+    NIX_HOMEBREW_GID=$(id -g "${config.nix-homebrew.user}" || (error "Failed to get a group ID for ${config.nix-homebrew.user}"; exit 1))
   '';
   lnForceFunction = ''
     ln_force() {
-      /bin/ln -sfn "$1" "$2"
+      ln -sfn "$1" "$2"
     }
   '';
   detectRepositorySnippet = ''

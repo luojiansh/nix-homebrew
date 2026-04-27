@@ -9,7 +9,7 @@
 # - MKDIR
 # - TOUCH
 # - INSTALL
-set -x
+
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   _sudo_path="$(command -v sudo 2>/dev/null || echo "")"
   if [[ -n "$_sudo_path" ]] && "$_sudo_path" -n true 2>/dev/null; then

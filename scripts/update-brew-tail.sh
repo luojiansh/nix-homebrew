@@ -25,4 +25,6 @@ EOF
 sed \
 	-e '1,/^HOMEBREW_LIBRARY=/d' \
 	-e 's/^PATH="/PATH="@runtimePath@:/' \
+	-e 's|/usr/bin/env |@env@ |g' \
+	-e 's|/bin/bash|@bash@|g' \
 	"${brew_upstream}" >>"${brew_tail}"

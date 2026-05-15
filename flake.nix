@@ -8,49 +8,63 @@
     };
   };
 
-  outputs = { self, brew-src }: let
-    flakeLock = builtins.fromJSON (builtins.readFile ./flake.lock);
-    brewVersion = flakeLock.nodes.brew-src.original.ref;
+  outputs =
+    { self, brew-src }:
+    let
+      flakeLock = builtins.fromJSON (builtins.readFile ./flake.lock);
+      brewVersion = flakeLock.nodes.brew-src.original.ref;
 
-    ci = (import ./ci/flake-compat.nix).makeCi {
-      inherit self brew-src;
+      ci = (import ./ci/flake-compat.nix).makeCi {
+        inherit self brew-src;
+      };
+
+      mkModuleWithDefaults =
+        imports:
+        { lib, ... }:
+        {
+          inherit imports;
+          nix-homebrew.package = lib.mkOptionDefault (
+            brew-src
+            // {
+              name = "brew-${brewVersion}";
+              version = brewVersion;
+            }
+          );
+        };
+    in
+    {
+      darwinModules = rec {
+        nix-homebrew = mkModuleWithDefaults [
+          ./modules/common.nix
+          ./modules/darwin.nix
+        ];
+
+        default = nix-homebrew;
+      };
+
+      nixosModules = rec {
+        nix-homebrew = mkModuleWithDefaults [
+          ./modules/common.nix
+          ./modules/linux.nix
+        ];
+
+        default = nix-homebrew;
+      };
+
+      homeManagerModules = rec {
+        nix-homebrew = mkModuleWithDefaults [
+          ./modules/common.nix
+          ./modules/home-manager.nix
+        ];
+
+        default = nix-homebrew;
+      };
+
+      inherit (ci)
+        packages
+        devShells
+        ciTests
+        githubActions
+        ;
     };
-
-    mkModuleWithDefaults = imports: { lib, ... }: {
-      inherit imports;
-      nix-homebrew.package = lib.mkOptionDefault (brew-src // {
-        name = "brew-${brewVersion}";
-        version = brewVersion;
-      });
-    };
-  in {
-    darwinModules = rec {
-      nix-homebrew = mkModuleWithDefaults [
-        ./modules/common.nix
-        ./modules/darwin.nix
-      ];
-
-      default = nix-homebrew;
-    };
-
-    nixosModules = rec {
-      nix-homebrew = mkModuleWithDefaults [
-        ./modules/common.nix
-        ./modules/linux.nix
-      ];
-
-      default = nix-homebrew;
-    };
-
-    homeManagerModules = rec {
-      nix-homebrew = mkModuleWithDefaults [
-        ./modules/common.nix
-        ./modules/home-manager.nix
-      ];
-
-      default = nix-homebrew;
-    };
-
-    inherit (ci) packages devShells ciTests githubActions;
-  };
 }

@@ -4,8 +4,10 @@
   lib,
   pkgs,
   config,
+  activationMode ? "system",
 }:
 (import ./setup-common.nix { inherit lib pkgs config; }) {
+  inherit activationMode;
   utilsFile = ./utils-linux.sh;
   commands = {
     id = "${pkgs.coreutils}/bin/id";
@@ -34,7 +36,10 @@
   ];
   runAsUser =
     command:
-    "${pkgs.util-linux}/bin/runuser -u ${lib.escapeShellArg config.nix-homebrew.user} -- ${command}";
+    if activationMode == "home-manager" then
+      command
+    else
+      "${pkgs.util-linux}/bin/runuser -u ${lib.escapeShellArg config.nix-homebrew.user} -- ${command}";
   gidScript = ''
     NIX_HOMEBREW_GID=$("''${ID[@]}" -g "${config.nix-homebrew.user}" || (error "Failed to get a group ID for ${config.nix-homebrew.user}"; exit 1))
   '';

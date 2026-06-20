@@ -62,9 +62,15 @@ lib.mkIf (options ? home) (
       home.activation.setup-homebrew = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${
           if pkgs.stdenv.hostPlatform.isDarwin then
-            (import ./setup-darwin.nix { inherit lib pkgs config; }).setupScript
+            (import ./setup-darwin.nix {
+              inherit lib pkgs config;
+              activationMode = "home-manager";
+            }).setupScript
           else if pkgs.stdenv.hostPlatform.isLinux then
-            (import ./setup-linux.nix { inherit lib pkgs config; }).setupScript
+            (import ./setup-linux.nix {
+              inherit lib pkgs config;
+              activationMode = "home-manager";
+            }).setupScript
           else
             throw "nix-homebrew: Unsupported platform"
         }

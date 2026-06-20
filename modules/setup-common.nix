@@ -12,6 +12,7 @@
   statArgs,
   permissionFormat,
   installArgs,
+  activationMode,
   runAsUser,
   gidScript,
   lnForceFunction,
@@ -24,6 +25,30 @@ let
   nixMarker = cfg._nixMarker;
   brew = cfg._brewPackage;
   makeBinBrew = cfg.makeBinBrew;
+  isHomeManager = activationMode == "home-manager";
+
+  checkHomeManagerPrefix = prefix: ''
+    HOMEBREW_PREFIX="${prefix.prefix}"
+
+    if [[ ! -e "$HOMEBREW_PREFIX" ]]; then
+      error "Home Manager cannot set up Homebrew because $HOMEBREW_PREFIX does not exist."
+      ohai "Create the prefix once before activating again:"
+      ohai "  sudo install -d -o ${lib.escapeShellArg cfg.user} -g '$NIX_HOMEBREW_PRIMARY_GROUP' -m 0755 ${lib.escapeShellArg prefix.prefix}"
+      exit 1
+    fi
+
+    if [[ ! -d "$HOMEBREW_PREFIX" ]]; then
+      error "Home Manager cannot set up Homebrew because $HOMEBREW_PREFIX is not a directory."
+      exit 1
+    fi
+
+    if [[ ! -w "$HOMEBREW_PREFIX" ]]; then
+      error "Home Manager cannot set up Homebrew because $HOMEBREW_PREFIX is not writable."
+      ohai "Prepare the prefix once before activating again:"
+      ohai "  sudo install -d -o ${lib.escapeShellArg cfg.user} -g '$NIX_HOMEBREW_PRIMARY_GROUP' -m 0755 ${lib.escapeShellArg prefix.prefix}"
+      exit 1
+    fi
+  '';
 
   setupPrefix = prefix: ''
     HOMEBREW_PREFIX="${prefix.prefix}"
@@ -178,8 +203,19 @@ in
     TOUCH=(${lib.escapeShellArgs [ commands.touch ]})
     INSTALL=(${lib.escapeShellArgs ([ commands.install ] ++ installArgs)})
 
-    NIX_HOMEBREW_UID=$("''${ID[@]}" -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
-    ${gidScript}
+    ${
+      if isHomeManager then
+        ''
+          NIX_HOMEBREW_UID=$("''${ID[@]}" -u)
+          NIX_HOMEBREW_GID=$("''${ID[@]}" -g)
+          NIX_HOMEBREW_PRIMARY_GROUP=$("''${ID[@]}" -gn ${lib.escapeShellArg cfg.user} || (error "Failed to get the primary group of ${cfg.user}"; exit 1))
+        ''
+      else
+        ''
+          NIX_HOMEBREW_UID=$("''${ID[@]}" -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
+          ${gidScript}
+        ''
+    }
 
     is_in_nix_store() {
       # /nix/store/anything -> inside
@@ -208,6 +244,8 @@ in
     }
 
     ${lnForceFunction}
+
+    ${lib.optionalString isHomeManager (lib.concatMapStrings checkHomeManagerPrefix enabledPrefixes)}
 
     ${lib.concatMapStrings setupPrefix enabledPrefixes}
 

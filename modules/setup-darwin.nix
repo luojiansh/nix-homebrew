@@ -4,8 +4,10 @@
   lib,
   pkgs,
   config,
+  activationMode ? "system",
 }:
 (import ./setup-common.nix { inherit lib pkgs config; }) {
+  inherit activationMode;
   utilsFile = ./utils-darwin.sh;
   commands = {
     id = "/usr/bin/id";
@@ -33,7 +35,11 @@
     "0755"
   ];
   runAsUser =
-    command: "/usr/bin/sudo -n -u ${lib.escapeShellArg config.nix-homebrew.user} -H ${command}";
+    command:
+    if activationMode == "home-manager" then
+      command
+    else
+      "/usr/bin/sudo -n -u ${lib.escapeShellArg config.nix-homebrew.user} -H ${command}";
   gidScript = ''
     NIX_HOMEBREW_GID=$(/usr/bin/dscl . -read "/Groups/${config.nix-homebrew.group}" | /usr/bin/awk '($1 == "PrimaryGroupID:") { print $2 }' || (error "Failed to get GID of ${config.nix-homebrew.group}"; exit 1))
   '';

@@ -123,7 +123,8 @@ let
         );
     };
 
-  disabledHomeManager =
+  evalHomeManager =
+    testModule:
     let
       hmLib = lib // {
         hm.dag.entryAfter = _: value: value;
@@ -193,29 +194,116 @@ let
           )
           (
             { config, pkgs, ... }:
-            let
-              homePackages = config.home.packages;
-              homeActivation = config.home.activation;
-            in
-            {
-              nix-homebrew.enable = false;
-
-              system.build.ci-script =
-                assert homePackages == [ ];
-                assert !(homeActivation ? setup-homebrew);
-                builtins.deepSeq homePackages (
-                  builtins.deepSeq homeActivation (
-                    pkgs.writeShellScript "disabled-home-manager" ''
-                      ${pkgs.coreutils}/bin/true
-                    ''
-                  )
-                );
-            }
+            testModule { inherit config pkgs; }
           )
         ];
       };
     in
     evaluated;
+
+  disabledHomeManager = evalHomeManager (
+    { config, pkgs }:
+    let
+      homePackages = config.home.packages;
+      homeActivation = config.home.activation;
+    in
+    {
+      nix-homebrew.enable = false;
+
+      system.build.ci-script =
+        assert homePackages == [ ];
+        assert !(homeActivation ? setup-homebrew);
+        builtins.deepSeq homePackages (
+          builtins.deepSeq homeActivation (
+            pkgs.writeShellScript "disabled-home-manager" ''
+              ${pkgs.coreutils}/bin/true
+            ''
+          )
+        );
+    }
+  );
+
+  makeHomeManagerActivationTest =
+    {
+      name,
+      prepared,
+    }:
+    evalHomeManager (
+      { config, pkgs }:
+      let
+        prefix = "$TMPDIR/nix-homebrew-${name}";
+        fakeBrew = pkgs.runCommandLocal "home-manager-fake-brew" { } ''
+          mkdir -p "$out/Library/Homebrew"
+          touch "$out/Library/Homebrew/brew.sh"
+          chmod +x "$out/Library/Homebrew/brew.sh"
+        '';
+        launcher = config.nix-homebrew.makeBinBrew config.nix-homebrew.prefixes.${prefix};
+        activation = config.home.activation.setup-homebrew;
+      in
+      {
+        nix-homebrew = {
+          enable = true;
+          package = fakeBrew;
+          patchBrew = false;
+          user = "root";
+          mutableTaps = true;
+          prefixes = lib.mkForce {
+            ${prefix} = {
+              enable = true;
+              library = "${prefix}/Homebrew/Library";
+              taps = { };
+            };
+          };
+          trust.commands = [ "example/test" ];
+        };
+
+        system.build.ci-script = pkgs.writeShellScript name ''
+          set -euo pipefail
+
+          prefix="${prefix}"
+          rm -rf "$prefix"
+
+          run() {
+            "$@"
+          }
+
+          ${
+            if prepared then
+              ''
+                mkdir -p "$prefix"
+
+                setup_script="$(${pkgs.gnused}/bin/sed -n 's/^run //p' <<<${lib.escapeShellArg activation})"
+                if ${pkgs.gnugrep}/bin/grep -Eq '(/sudo |/runuser )' "$setup_script"; then
+                  >&2 echo "Home Manager activation contains a user-switching command"
+                  exit 1
+                fi
+
+                activation_output="$({ ${activation} } 2>&1)"
+                printf '%s\n' "$activation_output"
+                if ${pkgs.gnugrep}/bin/grep -Fqi sudo <<<"$activation_output"; then
+                  >&2 echo "prepared-prefix activation requested sudo"
+                  exit 1
+                fi
+
+                test -L "$prefix/bin/brew"
+                test "$(readlink "$prefix/bin/brew")" = ${lib.escapeShellArg launcher}
+              ''
+            else
+              ''
+                if output="$({ ${activation} } 2>&1)"; then
+                  >&2 echo "Home Manager activation unexpectedly initialized a missing prefix"
+                  exit 1
+                fi
+
+                printf '%s\n' "$output"
+                ${pkgs.gnugrep}/bin/grep -Fq 'sudo install -d' <<<"$output"
+                ${pkgs.gnugrep}/bin/grep -Fq -- '-o root' <<<"$output"
+                test ! -e "$prefix"
+              ''
+          }
+        '';
+      }
+    );
 
   launcherContentModule =
     { config, pkgs, ... }:
@@ -482,6 +570,16 @@ in
   };
 
   disabled-home-manager = disabledHomeManager;
+
+  home-manager-missing-prefix = makeHomeManagerActivationTest {
+    name = "home-manager-missing-prefix";
+    prepared = false;
+  };
+
+  home-manager-prepared-prefix = makeHomeManagerActivationTest {
+    name = "home-manager-prepared-prefix";
+    prepared = true;
+  };
 
   launcher-content = makeTest {
     darwinModule = launcherContentModule;

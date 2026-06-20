@@ -221,6 +221,7 @@ let
     { config, pkgs, ... }:
     let
       cfg = config.nix-homebrew;
+      isArmDarwin = pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64;
       prefixName =
         if pkgs.stdenv.hostPlatform.isLinux then
           cfg.defaultLinuxPrefix
@@ -249,12 +250,38 @@ let
         check_shebang unified "${cfg.brewLauncher}/bin/brew"
         check_shebang prefix "${prefixLauncher}"
 
+        ${lib.optionalString isArmDarwin ''
+          router="$TMPDIR/brew-router"
+          cp "${cfg.brewLauncher}/bin/brew" "$router"
+          substituteInPlace "$router" \
+            --replace-fail 'exec "/opt/homebrew/bin/brew" "$@"' \
+              'printf "%s\n" /opt/homebrew; exit 0' \
+            --replace-fail 'exec "/usr/local/bin/brew" "$@"' \
+              'printf "%s\n" /usr/local; exit 0'
+
+          check_route() {
+            architecture="$1"
+            expected_prefix="$2"
+            actual_prefix="$(/usr/bin/arch "-$architecture" "$router" 2>&1 || true)"
+
+            if [[ "$actual_prefix" != "$expected_prefix" ]]; then
+              >&2 echo "$architecture launcher selected $actual_prefix"
+              >&2 echo "expected $expected_prefix"
+              failed=1
+            fi
+          }
+
+          check_route arm64 /opt/homebrew
+          check_route x86_64 /usr/local
+        ''}
+
         (( failed == 0 ))
         touch "$out"
       '';
     in
     {
       nix-homebrew.enable = true;
+      nix-homebrew.enableRosetta = lib.mkIf isArmDarwin true;
       system.stateVersion = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (lib.mkForce "26.05");
 
       ci.script = lib.mkForce ''

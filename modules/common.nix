@@ -24,6 +24,8 @@ let
 
   # On Darwin, we must use /bin/bash for `arch -x86_64` compatibility.
   bashPath = if pkgs.stdenv.hostPlatform.isDarwin then "/bin/bash" else "${pkgs.bash}/bin/bash";
+  unamePath =
+    if pkgs.stdenv.hostPlatform.isDarwin then "/usr/bin/uname" else "${pkgs.coreutils}/bin/uname";
 
   # Sadly, we cannot replace coreutils since the GNU implementations
   # behave differently.
@@ -96,8 +98,8 @@ let
     ''
       #!${bashPath}
       set -euo pipefail
-      cur_os=$(${pkgs.coreutils}/bin/uname -s)
-      cur_arch=$(${pkgs.coreutils}/bin/uname -m)
+      cur_os=$(${unamePath} -s)
+      cur_arch=$(${unamePath} -m)
     ''
     +
       lib.optionalString

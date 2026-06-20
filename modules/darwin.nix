@@ -61,7 +61,9 @@ in
     homebrew.text = lib.mkIf (options ? homebrew) (lib.mkBefore ''
       ${config.system.activationScripts.setup-homebrew.text}
     '');
-    setup-homebrew.text = darwinSetupNix.setupScript;
+    setup-homebrew.text = ''
+      ${darwinSetupNix.setupScript}
+    '';
   };
 
   # disable the install homebrew check

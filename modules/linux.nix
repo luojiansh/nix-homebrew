@@ -38,6 +38,8 @@ in
 
   # System-level activation
   system.activationScripts = {
-    setup-homebrew.text = linuxSetupNix.setupScript;
+    setup-homebrew.text = ''
+      ${linuxSetupNix.setupScript}
+    '';
   };
 }

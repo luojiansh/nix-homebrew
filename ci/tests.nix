@@ -217,6 +217,51 @@ let
     in
     evaluated;
 
+  launcherContentModule =
+    { config, pkgs, ... }:
+    let
+      cfg = config.nix-homebrew;
+      prefixName =
+        if pkgs.stdenv.hostPlatform.isLinux then
+          cfg.defaultLinuxPrefix
+        else if pkgs.stdenv.hostPlatform.isAarch64 then
+          cfg.defaultArm64Prefix
+        else
+          cfg.defaultIntelPrefix;
+      prefixLauncher = cfg.makeBinBrew cfg.prefixes.${prefixName};
+      expectedShebang =
+        if pkgs.stdenv.hostPlatform.isDarwin then "#!/bin/bash" else "#!${pkgs.bash}/bin/bash";
+      launcherContent = pkgs.runCommandLocal "launcher-content" { } ''
+        failed=0
+
+        check_shebang() {
+          launcher_name="$1"
+          launcher_path="$2"
+          actual_shebang="$(${pkgs.coreutils}/bin/head -n 1 "$launcher_path")"
+
+          if [[ "$actual_shebang" != ${lib.escapeShellArg expectedShebang} ]]; then
+            >&2 echo "$launcher_name launcher starts with $actual_shebang"
+            >&2 echo "expected ${expectedShebang}"
+            failed=1
+          fi
+        }
+
+        check_shebang unified "${cfg.brewLauncher}/bin/brew"
+        check_shebang prefix "${prefixLauncher}"
+
+        (( failed == 0 ))
+        touch "$out"
+      '';
+    in
+    {
+      nix-homebrew.enable = true;
+      system.stateVersion = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (lib.mkForce "26.05");
+
+      ci.script = lib.mkForce ''
+        cat "${launcherContent}"
+      '';
+    };
+
   makeTapValidationTest =
     {
       mutableTaps ? true,
@@ -304,6 +349,11 @@ in
   };
 
   disabled-home-manager = disabledHomeManager;
+
+  launcher-content = makeTest {
+    darwinModule = launcherContentModule;
+    linuxModule = launcherContentModule;
+  };
 
   migrate = makeTest {
     darwinModule =

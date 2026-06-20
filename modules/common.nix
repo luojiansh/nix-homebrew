@@ -1,7 +1,13 @@
 # Common nix-homebrew configuration shared across all platforms
 # Platform-specific overrides are handled by darwin.nix and linux.nix
 
-{ pkgs, lib, config, options, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  options,
+  ...
+}:
 let
   inherit (lib) types;
 
@@ -16,164 +22,206 @@ let
   brew = if cfg.patchBrew then patchBrew cfg.package else cfg.package;
   ruby = pkgs.ruby_4_0;
 
+  # On Darwin, we must use /bin/bash for `arch -x86_64` compatibility.
+  bashPath = if pkgs.stdenv.hostPlatform.isDarwin then "/bin/bash" else "${pkgs.bash}/bin/bash";
+
   # Sadly, we cannot replace coreutils since the GNU implementations
   # behave differently.
-  # On NixOS, standard tools aren't at /usr/bin or /bin. We include
-  # Nix profile paths as additional fallbacks — they are harmless
-  # no-ops on systems where they don't exist (macOS, Ubuntu, Fedora).
-  runtimePath = lib.makeBinPath [ pkgs.gitMinimal ]
-    + ":/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
+  runtimePath = lib.makeBinPath (
+    with pkgs;
+    [
+      bash
+      coreutils
+      findutils
+      gitMinimal
+      gnugrep
+      gnused
+      gawk
+      file
+    ]
+  );
 
-  prefixType = types.submodule ({ name, ... }: {
-    options = {
-      enable = lib.mkOption {
-        description = ''
-          Whether to set up this Homebrew prefix.
-        '';
-      };
-      prefix = lib.mkOption {
-        description = ''
-          The Homebrew prefix.
+  prefixType = types.submodule (
+    { name, ... }:
+    {
+      options = {
+        enable = lib.mkOption {
+          description = ''
+            Whether to set up this Homebrew prefix.
+          '';
+        };
+        prefix = lib.mkOption {
+          description = ''
+            The Homebrew prefix.
 
-          By default, it's `/opt/homebrew` for Apple Silicon Macs and
-          `/usr/local` for Intel Macs.
-        '';
-        type = types.str;
-        default = name;
-      };
-      library = lib.mkOption {
-        description = ''
-          The Homebrew library.
+            By default, it's `/opt/homebrew` for Apple Silicon Macs and
+            `/usr/local` for Intel Macs.
+          '';
+          type = types.str;
+          default = name;
+        };
+        library = lib.mkOption {
+          description = ''
+            The Homebrew library.
 
-          By default, it's `/opt/homebrew/Library` for Apple Silicon Macs and
-          `/usr/local/Homebrew/Library` for Intel Macs.
-        '';
-        type = types.str;
+            By default, it's `/opt/homebrew/Library` for Apple Silicon Macs and
+            `/usr/local/Homebrew/Library` for Intel Macs.
+          '';
+          type = types.str;
+        };
+        taps = lib.mkOption {
+          description = ''
+            A set of Nix-managed taps.
+          '';
+          type = types.attrsOf types.package;
+          default = { };
+          example = lib.literalExpression ''
+            {
+              "homebrew/homebrew-core" = pkgs.fetchFromGitHub {
+                owner = "homebrew";
+                repo = "homebrew-core";
+                rev = "...";
+                hash = "...";
+              };
+            }
+          '';
+        };
       };
-      taps = lib.mkOption {
-        description = ''
-          A set of Nix-managed taps.
-        '';
-        type = types.attrsOf types.package;
-        default = {};
-        example = lib.literalExpression ''
-          {
-            "homebrew/homebrew-core" = pkgs.fetchFromGitHub {
-              owner = "homebrew";
-              repo = "homebrew-core";
-              rev = "...";
-              hash = "...";
-            };
-          }
-        '';
-      };
-    };
-  });
+    }
+  );
 
   # Our unified brew launcher script.
   #
-  # We use `/bin/bash` (Bash 3.2 :/) instead of `${runtimeShell}`
-  # for compatibility with `arch -x86_64`.
-  brewLauncher = pkgs.writeScriptBin "brew" (''
-    #!/bin/bash
-    set -euo pipefail
-    cur_os=$(uname -s)
-    cur_arch=$(uname -m)
-  '' + lib.optionalString (cfg.prefixes ? ${cfg.defaultLinuxPrefix} && cfg.prefixes.${cfg.defaultLinuxPrefix}.enable) ''
-    if [[ "$cur_os" == "Linux" ]]; then
-      exec "${cfg.prefixes.${cfg.defaultLinuxPrefix}.prefix}/bin/brew" "$@"
-    fi
-  '' + lib.optionalString (cfg.prefixes ? ${cfg.defaultArm64Prefix} && cfg.prefixes.${cfg.defaultArm64Prefix}.enable) ''
-    if [[ "$cur_os" == "Darwin" ]] && [[ "$cur_arch" == "arm64" ]]; then
-      exec "${cfg.prefixes.${cfg.defaultArm64Prefix}.prefix}/bin/brew" "$@"
-    fi
-  '' + lib.optionalString (cfg.prefixes ? ${cfg.defaultIntelPrefix} && cfg.prefixes.${cfg.defaultIntelPrefix}.enable) ''
-    if [[ "$cur_os" == "Darwin" ]] && [[ "$cur_arch" == "x86_64" ]]; then
-      exec "${cfg.prefixes.${cfg.defaultIntelPrefix}.prefix}/bin/brew" "$@"
-    fi
-  '' + ''
-    >&2 echo "nix-homebrew: No Homebrew installation available for $cur_os/$cur_arch"
-    exit 1
-  '');
+  brewLauncher = pkgs.writeScriptBin "brew" (
+    ''
+      #!${bashPath}
+      set -euo pipefail
+      cur_os=$(${pkgs.coreutils}/bin/uname -s)
+      cur_arch=$(${pkgs.coreutils}/bin/uname -m)
+    ''
+    +
+      lib.optionalString
+        (cfg.prefixes ? ${cfg.defaultLinuxPrefix} && cfg.prefixes.${cfg.defaultLinuxPrefix}.enable)
+        ''
+          if [[ "$cur_os" == "Linux" ]]; then
+            exec "${cfg.prefixes.${cfg.defaultLinuxPrefix}.prefix}/bin/brew" "$@"
+          fi
+        ''
+    +
+      lib.optionalString
+        (cfg.prefixes ? ${cfg.defaultArm64Prefix} && cfg.prefixes.${cfg.defaultArm64Prefix}.enable)
+        ''
+          if [[ "$cur_os" == "Darwin" ]] && [[ "$cur_arch" == "arm64" ]]; then
+            exec "${cfg.prefixes.${cfg.defaultArm64Prefix}.prefix}/bin/brew" "$@"
+          fi
+        ''
+    +
+      lib.optionalString
+        (cfg.prefixes ? ${cfg.defaultIntelPrefix} && cfg.prefixes.${cfg.defaultIntelPrefix}.enable)
+        ''
+          if [[ "$cur_os" == "Darwin" ]] && [[ "$cur_arch" == "x86_64" ]]; then
+            exec "${cfg.prefixes.${cfg.defaultIntelPrefix}.prefix}/bin/brew" "$@"
+          fi
+        ''
+    + ''
+      >&2 echo "nix-homebrew: No Homebrew installation available for $cur_os/$cur_arch"
+      exit 1
+    ''
+  );
 
-  # Platform-appropriate paths for bash and env.
-  # On Darwin, we must use /bin/bash for `arch -x86_64` compatibility.
-  # On Linux (NixOS), these paths don't exist so we use Nix store paths.
-  bashPath = if pkgs.stdenv.hostPlatform.isDarwin then "/bin/bash" else "${pkgs.bash}/bin/bash";
+  # Platform-appropriate path for env.
+  # On Linux (NixOS), /usr/bin/env doesn't exist so we use a Nix store path.
   envPath = if pkgs.stdenv.hostPlatform.isDarwin then "/usr/bin/env" else "${pkgs.coreutils}/bin/env";
 
   # Prefix-specific bin/brew
   #
   # No prefix/library/repo auto-detection, everything is configured by Nix.
-  makeBinBrew = prefix: let
-    template = pkgs.writeText "brew.in" (''
-      #!/bin/bash
-      export HOMEBREW_PREFIX="@prefix@"
-      export HOMEBREW_LIBRARY="@library@"
-      export HOMEBREW_REPOSITORY="$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
-      export HOMEBREW_BREW_FILE="@out@"
+  makeBinBrew =
+    prefix:
+    let
+      template = pkgs.writeText "brew.in" (
+        ''
+          #!${bashPath}
+          export HOMEBREW_PREFIX="@prefix@"
+          export HOMEBREW_LIBRARY="@library@"
+          export HOMEBREW_REPOSITORY="$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
+          export HOMEBREW_BREW_FILE="@out@"
 
-      # Homebrew itself cannot self-update, so we set
-      # fake before/after versions to make `update-report.rb` happy
-      export HOMEBREW_UPDATE_BEFORE="nix"
-      export HOMEBREW_UPDATE_AFTER="nix"
-    '' + lib.optionalString (!cfg.mutableTaps) ''
-      # Disable auto-update since everything is pinned
-      export HOMEBREW_NO_AUTO_UPDATE=1
-    '' + lib.optionalString (prefix.taps ? "homebrew/homebrew-core") ''
-      # Disable API to use pinned homebrew-core
-      export HOMEBREW_NO_INSTALL_FROM_API=1
-    '' + (lib.optionalString (cfg.extraEnv != {})
-            (lib.concatLines (lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") cfg.extraEnv)))
-       + (builtins.readFile ./brew.tail.sh));
-  in pkgs.replaceVarsWith {
-    name = "brew";
-    src = template;
-    isExecutable = true;
+          # Homebrew itself cannot self-update, so we set
+          # fake before/after versions to make `update-report.rb` happy
+          export HOMEBREW_UPDATE_BEFORE="nix"
+          export HOMEBREW_UPDATE_AFTER="nix"
+        ''
+        + lib.optionalString (!cfg.mutableTaps) ''
+          # Disable auto-update since everything is pinned
+          export HOMEBREW_NO_AUTO_UPDATE=1
+        ''
+        + lib.optionalString (prefix.taps ? "homebrew/homebrew-core") ''
+          # Disable API to use pinned homebrew-core
+          export HOMEBREW_NO_INSTALL_FROM_API=1
+        ''
+        + (lib.optionalString (cfg.extraEnv != { }) (
+          lib.concatLines (
+            lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") cfg.extraEnv
+          )
+        ))
+        + (builtins.readFile ./brew.tail.sh)
+      );
+    in
+    pkgs.replaceVarsWith {
+      name = "brew";
+      src = template;
+      isExecutable = true;
 
-    # Must retain #!/bin/bash, otherwise `arch -x86_64 /usr/local/bin/brew`
-    # on Apple Silicon will not work.
-    dontPatchShebangs = true;
+      # Must retain /bin/bash on Darwin, otherwise
+      # `arch -x86_64 /usr/local/bin/brew` on Apple Silicon will not work.
+      dontPatchShebangs = true;
 
-    replacements = {
-      out = placeholder "out";
-      bash = bashPath;
-      env = envPath;
-      inherit runtimePath;
-      inherit (prefix) prefix library;
+      replacements = {
+        out = placeholder "out";
+        bash = bashPath;
+        env = envPath;
+        inherit runtimePath;
+        inherit (prefix) prefix library;
+      };
     };
-  };
 
-  patchBrew = brew: pkgs.runCommandLocal "${brew.name or "brew"}-patched" {} (''
-    cp -r "${brew}" "$out"
-    chmod u+w "$out" "$out/Library/Homebrew/cmd"
+  patchBrew =
+    brew:
+    pkgs.runCommandLocal "${brew.name or "brew"}-patched" { } (
+      ''
+        cp -r "${brew}" "$out"
+        chmod u+w "$out" "$out/Library/Homebrew/cmd"
 
-    # Disable self-update behavior
-    substituteInPlace "$out/Library/Homebrew/cmd/update.sh" \
-      --replace-fail 'for DIR in "''${HOMEBREW_REPOSITORY}"' "for DIR in "
+        # Disable self-update behavior
+        substituteInPlace "$out/Library/Homebrew/cmd/update.sh" \
+          --replace-fail 'for DIR in "''${HOMEBREW_REPOSITORY}"' "for DIR in "
 
-    # Homebrew passes --disable=gems,rubyopt ($HOMEBREW_RUBY_DISABLE_OPTIONS)
-    # and inserts vendored libraries into LOAD_PATH (vendor/bundle/bundler/setup.rb, standalone/init.rb).
-    # Instead of re-enabling gems, we add in additional required gems into LOAD_PATH.
-    ruby_sh="$out/Library/Homebrew/utils/ruby.sh"
-    bundler_setup_rb="$out/Library/Homebrew/vendor/bundle/bundler/setup.rb"
-    if [[ -e "$ruby_sh" ]] && grep "setup-ruby-path" "$ruby_sh" >/dev/null; then
-      >&2 echo "Patching vendored Ruby..."
-      chmod u+w "$ruby_sh" "$bundler_setup_rb"
-      echo -e "setup-ruby-path() { export HOMEBREW_RUBY_PATH=\"${ruby}/bin/ruby\"; }" >>"$ruby_sh"
-      echo -e "$:.unshift \"${ruby.gems.fiddle}/${ruby.gemPath}/gems/fiddle-${ruby.gems.fiddle.version}/lib\"" >>"$bundler_setup_rb"
-    fi
-  '' + lib.optionalString (brew ? version) ''
-    # Embed version number instead of checking with git
-    brew_sh="$out/Library/Homebrew/brew.sh"
-    chmod u+w "$out/Library/Homebrew" "$brew_sh"
-    sed -i -e 's/^HOMEBREW_VERSION=.*/HOMEBREW_VERSION="${brew.version}"/g' "$brew_sh"
+        # Homebrew passes --disable=gems,rubyopt ($HOMEBREW_RUBY_DISABLE_OPTIONS)
+        # and inserts vendored libraries into LOAD_PATH (vendor/bundle/bundler/setup.rb, standalone/init.rb).
+        # Instead of re-enabling gems, we add in additional required gems into LOAD_PATH.
+        ruby_sh="$out/Library/Homebrew/utils/ruby.sh"
+        bundler_setup_rb="$out/Library/Homebrew/vendor/bundle/bundler/setup.rb"
+        if [[ -e "$ruby_sh" ]] && grep "setup-ruby-path" "$ruby_sh" >/dev/null; then
+          >&2 echo "Patching vendored Ruby..."
+          chmod u+w "$ruby_sh" "$bundler_setup_rb"
+          echo -e "setup-ruby-path() { export HOMEBREW_RUBY_PATH=\"${ruby}/bin/ruby\"; }" >>"$ruby_sh"
+          echo -e "$:.unshift \"${ruby.gems.fiddle}/${ruby.gemPath}/gems/fiddle-${ruby.gems.fiddle.version}/lib\"" >>"$bundler_setup_rb"
+        fi
+      ''
+      + lib.optionalString (brew ? version) ''
+        # Embed version number instead of checking with git
+        brew_sh="$out/Library/Homebrew/brew.sh"
+        chmod u+w "$out/Library/Homebrew" "$brew_sh"
+        sed -i -e 's/^HOMEBREW_VERSION=.*/HOMEBREW_VERSION="${brew.version}"/g' "$brew_sh"
 
-    # 4.3.5: Clear GIT_REVISION to bypass caching mechanism
-    sed -i -e 's/^GIT_REVISION=.*/GIT_REVISION=""; HOMEBREW_VERSION="${brew.version}"/g' "$brew_sh"
-  '');
+        # 4.3.5: Clear GIT_REVISION to bypass caching mechanism
+        sed -i -e 's/^GIT_REVISION=.*/GIT_REVISION=""; HOMEBREW_VERSION="${brew.version}"/g' "$brew_sh"
+      ''
+    );
 
-in {
+in
+{
   options = {
     nix-homebrew = {
       enable = lib.mkOption {
@@ -205,7 +253,7 @@ in {
           These are applied to the default prefixes.
         '';
         type = types.attrsOf types.package;
-        default = {};
+        default = { };
         example = lib.literalExpression ''
           {
             "homebrew/homebrew-core" = pkgs.fetchFromGitHub {
@@ -253,7 +301,7 @@ in {
                 > by Homebrew.
               '';
               type = types.listOf types.str;
-              default = [];
+              default = [ ];
               example = [
                 "user/repo"
               ];
@@ -263,7 +311,7 @@ in {
                 Fully-qualified formulae to trust.
               '';
               type = types.listOf types.str;
-              default = [];
+              default = [ ];
               example = [
                 "user/repo/formula"
               ];
@@ -273,7 +321,7 @@ in {
                 Fully-qualified casks to trust.
               '';
               type = types.listOf types.str;
-              default = [];
+              default = [ ];
               example = [
                 "user/repo/cask"
               ];
@@ -283,14 +331,14 @@ in {
                 Fully-qualified external commands to trust.
               '';
               type = types.listOf types.str;
-              default = [];
+              default = [ ];
               example = [
                 "user/repo/command"
               ];
             };
           };
         };
-        default = {};
+        default = { };
       };
       autoMigrate = lib.mkOption {
         description = ''
@@ -356,7 +404,7 @@ in {
           Extra environment variables to set for Homebrew.
         '';
         type = types.attrsOf types.str;
-        default = {};
+        default = { };
         example = lib.literalExpression ''
           {
             HOMEBREW_NO_ANALYTICS = "1";

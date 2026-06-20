@@ -10,18 +10,6 @@
 # - TOUCH
 # - INSTALL
 
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  _sudo_path="$(command -v sudo 2>/dev/null || echo "")"
-  if [[ -n "$_sudo_path" ]] && "$_sudo_path" -n true 2>/dev/null; then
-    SUDO=("$_sudo_path" "-n")
-  else
-    echo "Warning: sudo not available or requires a password, running without elevated privileges" >&2
-    SUDO=()
-  fi
-else
-  SUDO=()
-fi
-
 # string formatters
 if [[ -t 1 ]]
 then
@@ -184,47 +172,47 @@ initialize_prefix() {
   then
     if [[ "${#chmods[@]}" -gt 0 ]]
     then
-      "${SUDO[@]}" "${CHMOD[@]}" "u+rwx" "${chmods[@]}"
+      "${CHMOD[@]}" "u+rwx" "${chmods[@]}"
     fi
     if [[ "${#group_chmods[@]}" -gt 0 ]]
     then
-      "${SUDO[@]}" "${CHMOD[@]}" "g+rwx" "${group_chmods[@]}"
+      "${CHMOD[@]}" "g+rwx" "${group_chmods[@]}"
     fi
     if [[ "${#user_chmods[@]}" -gt 0 ]]
     then
-      "${SUDO[@]}" "${CHMOD[@]}" "go-w" "${user_chmods[@]}"
+      "${CHMOD[@]}" "go-w" "${user_chmods[@]}"
     fi
     if [[ "${#chowns[@]}" -gt 0 ]]
     then
-      "${SUDO[@]}" "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${chowns[@]}"
+      "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${chowns[@]}"
     fi
     if [[ "${#chgrps[@]}" -gt 0 ]]
     then
-      "${SUDO[@]}" "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${chgrps[@]}"
+      "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${chgrps[@]}"
     fi
   else
-    "${SUDO[@]}" "${INSTALL[@]}" "${HOMEBREW_PREFIX}"
+    "${INSTALL[@]}" "${HOMEBREW_PREFIX}"
   fi
 
   if [[ "${#mkdirs[@]}" -gt 0 ]]
   then
-    "${SUDO[@]}" "${MKDIR[@]}" "${mkdirs[@]}"
-    "${SUDO[@]}" "${CHMOD[@]}" "ug=rwx" "${mkdirs[@]}"
+    "${MKDIR[@]}" "${mkdirs[@]}"
+    "${CHMOD[@]}" "ug=rwx" "${mkdirs[@]}"
     if [[ "${#mkdirs_user_only[@]}" -gt 0 ]]
     then
-      "${SUDO[@]}" "${CHMOD[@]}" "go-w" "${mkdirs_user_only[@]}"
+      "${CHMOD[@]}" "go-w" "${mkdirs_user_only[@]}"
     fi
-    "${SUDO[@]}" "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${mkdirs[@]}"
-    "${SUDO[@]}" "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${mkdirs[@]}"
+    "${CHOWN[@]}" "${NIX_HOMEBREW_UID}" "${mkdirs[@]}"
+    "${CHGRP[@]}" "${NIX_HOMEBREW_GID}" "${mkdirs[@]}"
   fi
 
   if ! [[ -d "${HOMEBREW_LIBRARY}" ]]
   then
-    "${SUDO[@]}" "${MKDIR[@]}" "${HOMEBREW_LIBRARY}"
+    "${MKDIR[@]}" "${HOMEBREW_LIBRARY}"
   fi
-  "${SUDO[@]}" "${CHOWN[@]}" "-R" "${NIX_HOMEBREW_UID}:${NIX_HOMEBREW_GID}" "${HOMEBREW_LIBRARY}"
+  "${CHOWN[@]}" "-R" "${NIX_HOMEBREW_UID}:${NIX_HOMEBREW_GID}" "${HOMEBREW_LIBRARY}"
 
-  "${SUDO[@]}" "${TOUCH[@]}" "${HOMEBREW_PREFIX}/.managed_by_nix_darwin"
+  "${TOUCH[@]}" "${HOMEBREW_PREFIX}/.managed_by_nix_darwin"
 }
 
 # vim: set et ts=2 sw=2:

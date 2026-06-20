@@ -1,9 +1,18 @@
 # Shared Homebrew setup script generator
 # Platform wrappers pass the small OS-specific differences.
 
-{ lib, pkgs, config }:
+{
+  lib,
+  pkgs,
+  config,
+}:
 {
   utilsFile,
+  commands,
+  statArgs,
+  permissionFormat,
+  installArgs,
+  runAsUser,
   gidScript,
   lnForceFunction,
   detectRepositorySnippet,
@@ -52,7 +61,7 @@ let
     ${setupTaps prefix.taps}
 
     # Make a fake $HOMEBREW_REPOSITORY
-    rm -rf "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
+    "''${RM[@]}" -rf "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
     "''${MKDIR[@]}" "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix/.git"
     "''${CHOWN[@]}" "$NIX_HOMEBREW_UID:$NIX_HOMEBREW_GID" "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix"
     "''${CHMOD[@]}" 775 "$HOMEBREW_LIBRARY/.homebrew-is-managed-by-nix/"{,.git}
@@ -69,64 +78,83 @@ let
     ${setupTrust}
   '';
 
-  setupTrust = let
-    trustEntries = flag: entries: lib.concatMapStrings (entry: ''
-      /usr/bin/sudo -n -u ${lib.escapeShellArg cfg.user} -H "$BIN_BREW" trust ${flag} ${lib.escapeShellArg entry} >/dev/null
-    '') entries;
-  in ''
-    ${trustEntries "--tap" cfg.trust.taps}
-    ${trustEntries "--formula" cfg.trust.formulae}
-    ${trustEntries "--cask" cfg.trust.casks}
-    ${trustEntries "--command" cfg.trust.commands}
-  '';
+  setupTrust =
+    let
+      trustEntries =
+        flag: entries:
+        lib.concatMapStrings (entry: ''
+          ${runAsUser ''"$BIN_BREW" trust ${flag} ${lib.escapeShellArg entry}''} >/dev/null
+        '') entries;
+    in
+    ''
+      ${trustEntries "--tap" cfg.trust.taps}
+      ${trustEntries "--formula" cfg.trust.formulae}
+      ${trustEntries "--cask" cfg.trust.casks}
+      ${trustEntries "--command" cfg.trust.commands}
+    '';
 
-  setupTaps = taps:
+  setupTaps =
+    taps:
     # Mixed taps
-    if cfg.mutableTaps then lib.concatMapStrings (path: let
-      # Each path must be in the form of user/repo
-      namespace = builtins.head (lib.splitString "/" path);
-      target = taps.${path};
+    if cfg.mutableTaps then
+      lib.concatMapStrings (
+        path:
+        let
+          # Each path must be in the form of user/repo
+          namespace = builtins.head (lib.splitString "/" path);
+          target = taps.${path};
 
-      namespaceDir = "$HOMEBREW_LIBRARY/Taps/${namespace}";
-      tapDir = "$HOMEBREW_LIBRARY/Taps/${path}";
-    in ''
-      if [[ -e "${namespaceDir}" ]] && [[ ! -d "${namespaceDir}" ]]; then
-        error "$tty_underline${namespaceDir}$tty_reset is in the way and needs to be moved out for $tty_underline${path}$tty_reset"
-        exit 1
-      fi
-      if [[ -L "${tapDir}" ]]; then
-        rm "${tapDir}"
-      elif [[ -d "${tapDir}" ]]; then
-        :
-      elif is_occupied "${tapDir}"; then
-        error "An existing $tty_underline${tapDir}$tty_reset is in the way"
-        exit 1
-      fi
-      "''${MKDIR[@]}" "${namespaceDir}"
-      "''${CHOWN[@]}" "$NIX_HOMEBREW_UID:$NIX_HOMEBREW_GID" "${namespaceDir}"
-      "''${CHMOD[@]}" "ug=rwx" "${namespaceDir}"
-      /usr/bin/rsync -rL --delete "${target}/" "${tapDir}"
-    '') (builtins.attrNames taps)
+          namespaceDir = "$HOMEBREW_LIBRARY/Taps/${namespace}";
+          tapDir = "$HOMEBREW_LIBRARY/Taps/${path}";
+        in
+        ''
+          if [[ -e "${namespaceDir}" ]] && [[ ! -d "${namespaceDir}" ]]; then
+            error "$tty_underline${namespaceDir}$tty_reset is in the way and needs to be moved out for $tty_underline${path}$tty_reset"
+            exit 1
+          fi
+          if [[ -L "${tapDir}" ]]; then
+            "''${RM[@]}" "${tapDir}"
+          elif [[ -d "${tapDir}" ]]; then
+            :
+          elif is_occupied "${tapDir}"; then
+            error "An existing $tty_underline${tapDir}$tty_reset is in the way"
+            exit 1
+          fi
+          "''${MKDIR[@]}" "${namespaceDir}"
+          "''${CHOWN[@]}" "$NIX_HOMEBREW_UID:$NIX_HOMEBREW_GID" "${namespaceDir}"
+          "''${CHMOD[@]}" "ug=rwx" "${namespaceDir}"
+          "''${RSYNC[@]}" -rL --delete "${target}/" "${tapDir}"
+        ''
+      ) (builtins.attrNames taps)
 
     # Fully declarative taps
-    else let
-      env = pkgs.runCommandLocal "taps-env" { } (''
-        mkdir -p "$out"
-      '' + lib.concatMapStrings (path: let
-        namespace = builtins.head (lib.splitString "/" path);
-        target = taps.${path};
-      in ''
-        mkdir -p "$out/${namespace}"
-        cp -RH "${target}" "$out/${path}"
-      '') (builtins.attrNames taps));
-    in ''
-      if is_occupied "$HOMEBREW_LIBRARY/Taps"; then
-        error "An existing $tty_underline$HOMEBREW_LIBRARY/Taps$tty_reset is in the way"
-        exit 1
-      fi
+    else
+      let
+        env = pkgs.runCommandLocal "taps-env" { } (
+          ''
+            mkdir -p "$out"
+          ''
+          + lib.concatMapStrings (
+            path:
+            let
+              namespace = builtins.head (lib.splitString "/" path);
+              target = taps.${path};
+            in
+            ''
+              mkdir -p "$out/${namespace}"
+              cp -RH "${target}" "$out/${path}"
+            ''
+          ) (builtins.attrNames taps)
+        );
+      in
+      ''
+        if is_occupied "$HOMEBREW_LIBRARY/Taps"; then
+          error "An existing $tty_underline$HOMEBREW_LIBRARY/Taps$tty_reset is in the way"
+          exit 1
+        fi
 
-      ln_force "${env}" "$HOMEBREW_LIBRARY/Taps"
-    '';
+        ln_force "${env}" "$HOMEBREW_LIBRARY/Taps"
+      '';
 
   enabledPrefixes = lib.filter (prefix: prefix.enable) (builtins.attrValues cfg.prefixes);
 in
@@ -136,7 +164,20 @@ in
     source ${./utils-common.sh}
     source ${utilsFile}
 
-    NIX_HOMEBREW_UID=$(id -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
+    ID=(${lib.escapeShellArgs [ commands.id ]})
+    READLINK=(${lib.escapeShellArgs [ commands.readlink ]})
+    RM=(${lib.escapeShellArgs [ commands.rm ]})
+    RSYNC=(${lib.escapeShellArgs [ commands.rsync ]})
+    STAT_PRINTF=(${lib.escapeShellArgs ([ commands.stat ] ++ statArgs)})
+    PERMISSION_FORMAT=${lib.escapeShellArg permissionFormat}
+    CHMOD=(${lib.escapeShellArgs [ commands.chmod ]})
+    CHOWN=(${lib.escapeShellArgs [ commands.chown ]})
+    CHGRP=(${lib.escapeShellArgs [ commands.chgrp ]})
+    MKDIR=(${lib.escapeShellArgs [ commands.mkdir ]} -p)
+    TOUCH=(${lib.escapeShellArgs [ commands.touch ]})
+    INSTALL=(${lib.escapeShellArgs ([ commands.install ] ++ installArgs)})
+
+    NIX_HOMEBREW_UID=$("''${ID[@]}" -u "${cfg.user}" || (error "Failed to get UID of ${cfg.user}"; exit 1))
     ${gidScript}
 
     is_in_nix_store() {
@@ -148,7 +189,7 @@ in
 
       if [[ -e "$1" ]]
       then
-        path=$(readlink -f "$1")
+        path=$("''${READLINK[@]}" -f "$1")
       else
         path="$1"
       fi

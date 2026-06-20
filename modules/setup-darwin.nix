@@ -1,8 +1,38 @@
 # Darwin-specific wrapper around the shared setup generator.
 
-{ lib, pkgs, config }:
+{
+  lib,
+  pkgs,
+  config,
+}:
 (import ./setup-common.nix { inherit lib pkgs config; }) {
   utilsFile = ./utils-darwin.sh;
+  commands = {
+    id = "/usr/bin/id";
+    readlink = "/usr/bin/readlink";
+    rm = "/bin/rm";
+    rsync = "/usr/bin/rsync";
+    stat = "/usr/bin/stat";
+    chmod = "/bin/chmod";
+    chown = "/usr/sbin/chown";
+    chgrp = "/usr/bin/chgrp";
+    mkdir = "/bin/mkdir";
+    touch = "/usr/bin/touch";
+    install = "/usr/bin/install";
+  };
+  statArgs = [ "-f" ];
+  permissionFormat = "%A";
+  installArgs = [
+    "-d"
+    "-o"
+    "root"
+    "-g"
+    "wheel"
+    "-m"
+    "0755"
+  ];
+  runAsUser =
+    command: "/usr/bin/sudo -n -u ${lib.escapeShellArg config.nix-homebrew.user} -H ${command}";
   gidScript = ''
     NIX_HOMEBREW_GID=$(/usr/bin/dscl . -read "/Groups/${config.nix-homebrew.group}" | /usr/bin/awk '($1 == "PrimaryGroupID:") { print $2 }' || (error "Failed to get GID of ${config.nix-homebrew.group}"; exit 1))
   '';

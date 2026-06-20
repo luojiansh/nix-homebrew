@@ -1,10 +1,41 @@
 # Linux-specific wrapper around the shared setup generator.
 
-{ lib, pkgs, config }:
+{
+  lib,
+  pkgs,
+  config,
+}:
 (import ./setup-common.nix { inherit lib pkgs config; }) {
   utilsFile = ./utils-linux.sh;
+  commands = {
+    id = "${pkgs.coreutils}/bin/id";
+    readlink = "${pkgs.coreutils}/bin/readlink";
+    rm = "${pkgs.coreutils}/bin/rm";
+    rsync = "${pkgs.rsync}/bin/rsync";
+    stat = "${pkgs.coreutils}/bin/stat";
+    chmod = "${pkgs.coreutils}/bin/chmod";
+    chown = "${pkgs.coreutils}/bin/chown";
+    chgrp = "${pkgs.coreutils}/bin/chgrp";
+    mkdir = "${pkgs.coreutils}/bin/mkdir";
+    touch = "${pkgs.coreutils}/bin/touch";
+    install = "${pkgs.coreutils}/bin/install";
+  };
+  statArgs = [ "--printf" ];
+  permissionFormat = "%a";
+  installArgs = [
+    "-d"
+    "-o"
+    "root"
+    "-g"
+    "root"
+    "-m"
+    "0755"
+  ];
+  runAsUser =
+    command:
+    "${pkgs.util-linux}/bin/runuser -u ${lib.escapeShellArg config.nix-homebrew.user} -- ${command}";
   gidScript = ''
-    NIX_HOMEBREW_GID=$(id -g "${config.nix-homebrew.user}" || (error "Failed to get a group ID for ${config.nix-homebrew.user}"; exit 1))
+    NIX_HOMEBREW_GID=$("''${ID[@]}" -g "${config.nix-homebrew.user}" || (error "Failed to get a group ID for ${config.nix-homebrew.user}"; exit 1))
   '';
   lnForceFunction = ''
     ln_force() {

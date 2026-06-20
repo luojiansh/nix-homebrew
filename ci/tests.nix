@@ -289,6 +289,76 @@ let
       '';
     };
 
+  setupContentModule =
+    { config, pkgs, ... }:
+    let
+      isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+      setupScript =
+        if isDarwin then
+          (import (self + "/modules/setup-darwin.nix") { inherit lib pkgs config; }).setupScript
+        else
+          (import (self + "/modules/setup-linux.nix") { inherit lib pkgs config; }).setupScript;
+      setupContent = pkgs.runCommandLocal "setup-content" { } ''
+        failed=0
+
+        require_literal() {
+          literal="$1"
+          if ! ${pkgs.gnugrep}/bin/grep -Fq -- "$literal" "${setupScript}"; then
+            >&2 echo "setup script does not contain required command: $literal"
+            failed=1
+          fi
+        }
+
+        reject_literal() {
+          literal="$1"
+          if ${pkgs.gnugrep}/bin/grep -Fq -- "$literal" "${setupScript}"; then
+            >&2 echo "setup script contains forbidden command: $literal"
+            failed=1
+          fi
+        }
+
+        ${
+          if isDarwin then
+            ''
+              require_literal /usr/bin/id
+              require_literal /usr/bin/readlink
+              require_literal /bin/rm
+              require_literal /usr/bin/rsync
+              require_literal /usr/bin/stat
+              require_literal /bin/chmod
+              require_literal /usr/sbin/chown
+              require_literal /usr/bin/chgrp
+              require_literal /bin/mkdir
+              require_literal /usr/bin/touch
+              require_literal /usr/bin/install
+              require_literal '/usr/bin/sudo -n -u runner -H "$BIN_BREW" trust --command example/test >/dev/null'
+            ''
+          else
+            ''
+              reject_literal /usr/bin/sudo
+              reject_literal /usr/bin/rsync
+              reject_literal '$(id '
+              reject_literal '$(readlink '
+              require_literal '/bin/runuser -u runner -- "$BIN_BREW" trust --command example/test >/dev/null'
+            ''
+        }
+
+        (( failed == 0 ))
+        touch "$out"
+      '';
+    in
+    {
+      nix-homebrew.enable = true;
+      nix-homebrew.mutableTaps = true;
+      nix-homebrew.taps."example/homebrew-test" = pkgs.emptyDirectory;
+      nix-homebrew.trust.commands = [ "example/test" ];
+      system.stateVersion = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (lib.mkForce "26.05");
+
+      ci.script = lib.mkForce ''
+        cat "${setupContent}"
+      '';
+    };
+
   makeTapValidationTest =
     {
       mutableTaps ? true,
@@ -380,6 +450,11 @@ in
   launcher-content = makeTest {
     darwinModule = launcherContentModule;
     linuxModule = launcherContentModule;
+  };
+
+  setup-content = makeTest {
+    darwinModule = setupContentModule;
+    linuxModule = setupContentModule;
   };
 
   migrate = makeTest {

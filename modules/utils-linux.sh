@@ -10,13 +10,4 @@
 # - NIX_HOMEBREW_UID
 # - NIX_HOMEBREW_GID
 
-# Linux-specific tool paths
-STAT_PRINTF=("stat" "--printf")
-PERMISSION_FORMAT="%a"
-
-CHMOD=("chmod")
-CHOWN=("chown")
-CHGRP=("chgrp")
-MKDIR=("mkdir" "-p")
-TOUCH=("touch")
-INSTALL=("install" -d -o "root" -g "root" -m "0755")
+# Tool paths and platform arguments are injected by setup-linux.nix.

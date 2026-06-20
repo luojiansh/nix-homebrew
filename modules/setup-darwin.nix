@@ -11,6 +11,7 @@
     id = "/usr/bin/id";
     readlink = "/usr/bin/readlink";
     rm = "/bin/rm";
+    ln = "/bin/ln";
     rsync = "/usr/bin/rsync";
     stat = "/usr/bin/stat";
     chmod = "/bin/chmod";
@@ -38,7 +39,7 @@
   '';
   lnForceFunction = ''
     ln_force() {
-      /bin/ln -shf "$1" "$2"
+      "''${LN[@]}" -shf "$1" "$2"
     }
   '';
   detectRepositorySnippet = ''

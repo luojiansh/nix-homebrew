@@ -1,6 +1,7 @@
 # Shared utilities for Homebrew setup.
 #
-# This file expects these variables to be defined by the caller before sourcing:
+# The generated setup script initializes these variables after sourcing this file
+# and before calling any helper defined here:
 # - STAT_PRINTF
 # - PERMISSION_FORMAT
 # - CHMOD

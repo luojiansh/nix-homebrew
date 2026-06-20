@@ -11,6 +11,7 @@
     id = "${pkgs.coreutils}/bin/id";
     readlink = "${pkgs.coreutils}/bin/readlink";
     rm = "${pkgs.coreutils}/bin/rm";
+    ln = "${pkgs.coreutils}/bin/ln";
     rsync = "${pkgs.rsync}/bin/rsync";
     stat = "${pkgs.coreutils}/bin/stat";
     chmod = "${pkgs.coreutils}/bin/chmod";
@@ -39,7 +40,7 @@
   '';
   lnForceFunction = ''
     ln_force() {
-      ln -sfn "$1" "$2"
+      "''${LN[@]}" -sfn "$1" "$2"
     }
   '';
   detectRepositorySnippet = ''

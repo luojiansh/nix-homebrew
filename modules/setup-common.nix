@@ -167,6 +167,7 @@ in
     ID=(${lib.escapeShellArgs [ commands.id ]})
     READLINK=(${lib.escapeShellArgs [ commands.readlink ]})
     RM=(${lib.escapeShellArgs [ commands.rm ]})
+    LN=(${lib.escapeShellArgs [ commands.ln ]})
     RSYNC=(${lib.escapeShellArgs [ commands.rsync ]})
     STAT_PRINTF=(${lib.escapeShellArgs ([ commands.stat ] ++ statArgs)})
     PERMISSION_FORMAT=${lib.escapeShellArg permissionFormat}

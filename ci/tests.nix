@@ -317,12 +317,23 @@ let
           fi
         }
 
+        reject_bare_assignment() {
+          variable="$1"
+          command="$2"
+          pattern="^$variable=\\((['\"])?$command(['\"])?([[:space:]]|\\))"
+          if ${pkgs.gnugrep}/bin/grep -Eq -- "$pattern" "${setupScript}"; then
+            >&2 echo "setup script assigns bare command $command to $variable"
+            failed=1
+          fi
+        }
+
         ${
           if isDarwin then
             ''
               require_literal /usr/bin/id
               require_literal /usr/bin/readlink
               require_literal /bin/rm
+              require_literal /bin/ln
               require_literal /usr/bin/rsync
               require_literal /usr/bin/stat
               require_literal /bin/chmod
@@ -339,7 +350,32 @@ let
               reject_literal /usr/bin/rsync
               reject_literal '$(id '
               reject_literal '$(readlink '
-              require_literal '/bin/runuser -u runner -- "$BIN_BREW" trust --command example/test >/dev/null'
+              reject_literal '  ln -sfn'
+              require_literal 'ID=(${pkgs.coreutils}/bin/id)'
+              require_literal 'READLINK=(${pkgs.coreutils}/bin/readlink)'
+              require_literal 'RM=(${pkgs.coreutils}/bin/rm)'
+              require_literal 'LN=(${pkgs.coreutils}/bin/ln)'
+              require_literal 'RSYNC=(${pkgs.rsync}/bin/rsync)'
+              require_literal 'STAT_PRINTF=(${pkgs.coreutils}/bin/stat --printf)'
+              require_literal 'CHMOD=(${pkgs.coreutils}/bin/chmod)'
+              require_literal 'CHOWN=(${pkgs.coreutils}/bin/chown)'
+              require_literal 'CHGRP=(${pkgs.coreutils}/bin/chgrp)'
+              require_literal 'MKDIR=(${pkgs.coreutils}/bin/mkdir -p)'
+              require_literal 'TOUCH=(${pkgs.coreutils}/bin/touch)'
+              require_literal 'INSTALL=(${pkgs.coreutils}/bin/install -d -o root -g root -m 0755)'
+              require_literal '${pkgs.util-linux}/bin/runuser -u runner -- "$BIN_BREW" trust --command example/test >/dev/null'
+              reject_bare_assignment ID id
+              reject_bare_assignment READLINK readlink
+              reject_bare_assignment RM rm
+              reject_bare_assignment LN ln
+              reject_bare_assignment RSYNC rsync
+              reject_bare_assignment STAT_PRINTF stat
+              reject_bare_assignment CHMOD chmod
+              reject_bare_assignment CHOWN chown
+              reject_bare_assignment CHGRP chgrp
+              reject_bare_assignment MKDIR mkdir
+              reject_bare_assignment TOUCH touch
+              reject_bare_assignment INSTALL install
             ''
         }
 

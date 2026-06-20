@@ -101,8 +101,126 @@ let
     else
       throw "Unsupported CI test platform: ${pkgs.stdenv.hostPlatform.system}";
 
+  disabledSystemModule =
+    { config, pkgs, ... }:
+    let
+      systemPackages = config.environment.systemPackages;
+      activationScripts = config.system.activationScripts;
+      systemPackageNames = map lib.getName systemPackages;
+      activationScriptNames = builtins.attrNames activationScripts;
+    in
+    {
+      nix-homebrew.enable = false;
+      system.stateVersion = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (lib.mkForce "26.05");
+
+      ci.script =
+        assert !(builtins.elem "brew" systemPackageNames);
+        assert !(activationScripts ? setup-homebrew);
+        builtins.deepSeq systemPackageNames (
+          builtins.deepSeq activationScriptNames ''
+            ${pkgs.coreutils}/bin/true
+          ''
+        );
+    };
+
+  disabledHomeManager =
+    let
+      hmLib = lib // {
+        hm.dag.entryAfter = _: value: value;
+      };
+      evaluated = lib.evalModules {
+        specialArgs = { inherit pkgs; };
+        modules = [
+          (self + "/modules/common.nix")
+          (
+            { lib, ... }:
+            {
+              options = {
+                assertions = lib.mkOption {
+                  type = lib.types.listOf (
+                    lib.types.submodule {
+                      options = {
+                        assertion = lib.mkOption { type = lib.types.bool; };
+                        message = lib.mkOption { type = lib.types.str; };
+                      };
+                    }
+                  );
+                  default = [ ];
+                };
+                home = {
+                  username = lib.mkOption {
+                    type = lib.types.str;
+                    default = "runner";
+                  };
+                  packages = lib.mkOption {
+                    type = lib.types.listOf lib.types.package;
+                    default = [ ];
+                  };
+                  activation = lib.mkOption {
+                    type = lib.types.attrsOf lib.types.lines;
+                    default = { };
+                  };
+                };
+                programs = {
+                  bash.initExtra = lib.mkOption {
+                    type = lib.types.lines;
+                    default = "";
+                  };
+                  zsh.initContent = lib.mkOption {
+                    type = lib.types.lines;
+                    default = "";
+                  };
+                  fish.interactiveShellInit = lib.mkOption {
+                    type = lib.types.lines;
+                    default = "";
+                  };
+                };
+                system.build.ci-script = lib.mkOption {
+                  type = lib.types.package;
+                };
+              };
+            }
+          )
+          (
+            args@{ config, options, ... }:
+            import (self + "/modules/home-manager.nix") (
+              args
+              // {
+                lib = hmLib;
+                inherit config options;
+              }
+            )
+          )
+          (
+            { config, pkgs, ... }:
+            let
+              homePackages = config.home.packages;
+              homeActivation = config.home.activation;
+            in
+            {
+              nix-homebrew.enable = false;
+
+              system.build.ci-script =
+                assert homePackages == [ ];
+                assert !(homeActivation ? setup-homebrew);
+                builtins.deepSeq homePackages (
+                  builtins.deepSeq homeActivation (
+                    pkgs.writeShellScript "disabled-home-manager" ''
+                      ${pkgs.coreutils}/bin/true
+                    ''
+                  )
+                );
+            }
+          )
+        ];
+      };
+    in
+    evaluated;
+
   makeTapValidationTest =
-    { mutableTaps ? true }:
+    {
+      mutableTaps ? true,
+    }:
     makeTest {
       darwinModule =
         { pkgs, config, ... }:
@@ -180,6 +298,13 @@ let
     };
 in
 {
+  disabled-system = makeTest {
+    darwinModule = disabledSystemModule;
+    linuxModule = disabledSystemModule;
+  };
+
+  disabled-home-manager = disabledHomeManager;
+
   migrate = makeTest {
     darwinModule =
       { pkgs, config, ... }:

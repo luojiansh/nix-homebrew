@@ -54,6 +54,10 @@
       # Looks like a standard Linux installation
       ohai "Looks like a standard Linux Homebrew installation"
       HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX/Homebrew"
+    elif [[ -e "$HOMEBREW_PREFIX/.git" ]]; then
+      # Looks like a Linux installation with the prefix as the repository
+      ohai "Looks like a Linux Homebrew installation with the prefix as the repository"
+      HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"
     else
       # Custom installation?
       ohai "Please uninstall Homebrew and try activating again."

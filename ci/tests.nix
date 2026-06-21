@@ -363,12 +363,34 @@ let
     );
 
   makeLinuxMigrationLayoutTest =
-    { name }:
+    {
+      name,
+      repositoryLayout,
+    }:
     evalHomeManager (
       { config, pkgs }:
       let
         testUser = "__nix_homebrew_test_user__";
         prefix = "$TMPDIR/nix-homebrew-${name}";
+        libraryRelative = if repositoryLayout == "standard" then "/Homebrew/Library" else "/Library";
+        managedHomebrewPath = "${prefix}${libraryRelative}/Homebrew";
+        expectedRepository = if repositoryLayout == "standard" then "${prefix}/Homebrew" else prefix;
+        existingRepositorySetup =
+          if repositoryLayout == "standard" then
+            ''
+              mkdir -p "$prefix/Homebrew/.git" "$prefix/Homebrew/Library/Homebrew"
+            ''
+          else if repositoryLayout == "prefix-root" then
+            ''
+              mkdir -p "$prefix/.git" "$prefix/Library/Homebrew"
+            ''
+          else
+            throw "unknown Linux migration repository layout: ${repositoryLayout}";
+        expectedMessage =
+          if repositoryLayout == "standard" then
+            "Looks like a standard Linux Homebrew installation"
+          else
+            "Looks like a Linux Homebrew installation with the prefix as the repository";
         fakeBrew = pkgs.runCommandLocal "linux-migration-fake-brew" { } ''
           mkdir -p "$out/Library/Homebrew"
           touch "$out/Library/Homebrew/brew.sh"
@@ -379,6 +401,7 @@ let
 
           printf '%s\n' "$1" >> "''${NIX_HOMEBREW_TEST_NUKE_LOG:?}"
           rm -rf -- "$1"
+          mkdir -p -- "$1"
         '';
         baseTools = pkgs.callPackage (self + "/pkgs") { };
         setupScript =
@@ -400,7 +423,7 @@ let
           prefixes = lib.mkForce {
             ${prefix} = {
               enable = true;
-              library = "${prefix}/Homebrew/Library";
+              library = "${prefix}${libraryRelative}";
               taps = { };
             };
           };
@@ -414,14 +437,14 @@ let
             set -euo pipefail
 
             prefix="${prefix}"
-            expected_repository="$prefix/Homebrew"
+            expected_repository="${expectedRepository}"
             store_setup_script="${setupScript}"
             setup_script="$TMPDIR/${name}-setup-homebrew"
             nuke_log="$TMPDIR/${name}-nuke.log"
             actual_user="$(${pkgs.coreutils}/bin/id -un)"
 
             rm -rf "$prefix" "$setup_script" "$nuke_log"
-            mkdir -p "$prefix/Homebrew/.git" "$prefix/Homebrew/Library/Homebrew"
+            ${existingRepositorySetup}
 
             ${pkgs.gnused}/bin/sed "s/${testUser}/$actual_user/g" \
               "$store_setup_script" >"$setup_script"
@@ -436,10 +459,10 @@ let
             fi
 
             printf '%s\n' "$first_output"
-            ${pkgs.gnugrep}/bin/grep -Fq 'Looks like a standard Linux Homebrew installation' <<<"$first_output"
+            ${pkgs.gnugrep}/bin/grep -Fq '${expectedMessage}' <<<"$first_output"
             ${pkgs.gnugrep}/bin/grep -Fq 'Attempting to migrate Homebrew installation...' <<<"$first_output"
             test -L "$prefix/bin/brew"
-            test -L "$prefix/Homebrew/Library/Homebrew"
+            test -L "${managedHomebrewPath}"
             test -e "$prefix/.managed_by_nix_darwin"
             test "$(${pkgs.coreutils}/bin/cat "$nuke_log")" = "$expected_repository"
             test "$(${pkgs.coreutils}/bin/wc -l < "$nuke_log")" -eq 1
@@ -751,6 +774,12 @@ in
 
   linux-migration-layout = makeLinuxMigrationLayoutTest {
     name = "linux-migration-layout";
+    repositoryLayout = "standard";
+  };
+
+  linux-migration-layout-prefix-root = makeLinuxMigrationLayoutTest {
+    name = "linux-migration-layout-prefix-root";
+    repositoryLayout = "prefix-root";
   };
 
   launcher-content = makeTest {

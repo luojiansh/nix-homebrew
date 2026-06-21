@@ -11,6 +11,7 @@
   utilsFile = ./utils-darwin.sh;
   commands = {
     id = "/usr/bin/id";
+    find = "/usr/bin/find";
     readlink = "/usr/bin/readlink";
     rm = "/bin/rm";
     ln = "/bin/ln";

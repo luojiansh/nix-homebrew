@@ -226,11 +226,12 @@ let
   makeHomeManagerActivationTest =
     {
       name,
-      prepared,
+      scenario,
     }:
     evalHomeManager (
       { config, pkgs }:
       let
+        testUser = "__nix_homebrew_test_user__";
         prefix = "$TMPDIR/nix-homebrew-${name}";
         fakeBrew = pkgs.runCommandLocal "home-manager-fake-brew" { } ''
           mkdir -p "$out/Library/Homebrew"
@@ -241,11 +242,13 @@ let
         activation = config.home.activation.setup-homebrew;
       in
       {
+        home.username = testUser;
+
         nix-homebrew = {
           enable = true;
           package = fakeBrew;
           patchBrew = false;
-          user = "root";
+          user = lib.mkIf (scenario == "owner-mismatch") "root";
           mutableTaps = true;
           prefixes = lib.mkForce {
             ${prefix} = {
@@ -257,51 +260,108 @@ let
           trust.commands = [ "example/test" ];
         };
 
-        system.build.ci-script = pkgs.writeShellScript name ''
-          set -euo pipefail
-
-          prefix="${prefix}"
-          rm -rf "$prefix"
-
-          run() {
-            "$@"
-          }
-
-          ${
-            if prepared then
-              ''
-                mkdir -p "$prefix"
-
-                setup_script="$(${pkgs.gnused}/bin/sed -n 's/^run //p' <<<${lib.escapeShellArg activation})"
-                if ${pkgs.gnugrep}/bin/grep -Eq '(/sudo |/runuser )' "$setup_script"; then
-                  >&2 echo "Home Manager activation contains a user-switching command"
-                  exit 1
-                fi
-
-                activation_output="$({ ${activation} } 2>&1)"
-                printf '%s\n' "$activation_output"
-                if ${pkgs.gnugrep}/bin/grep -Fqi sudo <<<"$activation_output"; then
-                  >&2 echo "prepared-prefix activation requested sudo"
-                  exit 1
-                fi
-
-                test -L "$prefix/bin/brew"
-                test "$(readlink "$prefix/bin/brew")" = ${lib.escapeShellArg launcher}
-              ''
+        system.build.ci-script =
+          assert
+            if scenario == "owner-mismatch" then
+              lib.any (
+                assertion:
+                !assertion.assertion
+                && assertion.message == "nix-homebrew.user must match home.username when using Home Manager"
+              ) config.assertions
             else
-              ''
-                if output="$({ ${activation} } 2>&1)"; then
-                  >&2 echo "Home Manager activation unexpectedly initialized a missing prefix"
-                  exit 1
-                fi
+              lib.all (assertion: assertion.assertion) config.assertions;
+          pkgs.writeShellScript name ''
+            set -euo pipefail
 
-                printf '%s\n' "$output"
-                ${pkgs.gnugrep}/bin/grep -Fq 'sudo install -d' <<<"$output"
-                ${pkgs.gnugrep}/bin/grep -Fq -- '-o root' <<<"$output"
-                test ! -e "$prefix"
-              ''
-          }
-        '';
+            prefix="${prefix}"
+            rm -rf "$prefix"
+
+            store_setup_script="$(${pkgs.gnused}/bin/sed -n 's/^run //p' <<<${lib.escapeShellArg activation})"
+            actual_user="$(${pkgs.coreutils}/bin/id -un)"
+            actual_group="$(${pkgs.coreutils}/bin/id -gn)"
+            setup_script="$TMPDIR/${name}-setup-homebrew"
+
+            materialize_setup_script() {
+              configured_user="$1"
+              ${pkgs.gnused}/bin/sed "s/${testUser}/$configured_user/g" \
+                "$store_setup_script" >"$setup_script"
+              chmod +x "$setup_script"
+            }
+
+            ${
+              if scenario == "prepared" then
+                ''
+                  mkdir -p "$prefix"
+                  materialize_setup_script "$actual_user"
+
+                  if ${pkgs.gnugrep}/bin/grep -Eq '(/sudo |/runuser )' "$setup_script"; then
+                    >&2 echo "Home Manager activation contains a user-switching command"
+                    exit 1
+                  fi
+
+                  activation_output="$({ "$setup_script"; } 2>&1)"
+                  printf '%s\n' "$activation_output"
+                  if ${pkgs.gnugrep}/bin/grep -Fqi sudo <<<"$activation_output"; then
+                    >&2 echo "prepared-prefix activation requested sudo"
+                    exit 1
+                  fi
+
+                  test -L "$prefix/bin/brew"
+                  test "$(readlink "$prefix/bin/brew")" = ${lib.escapeShellArg launcher}
+                ''
+              else if scenario == "missing" then
+                ''
+                  materialize_setup_script "$actual_user"
+
+                  if output="$({ "$setup_script"; } 2>&1)"; then
+                    >&2 echo "Home Manager activation unexpectedly initialized a missing prefix"
+                    exit 1
+                  fi
+
+                  printf '%s\n' "$output"
+                  ${pkgs.gnugrep}/bin/grep -Fq 'sudo install -d' <<<"$output"
+                  ${pkgs.gnugrep}/bin/grep -Fq -- "-o $actual_user" <<<"$output"
+                  ${pkgs.gnugrep}/bin/grep -Fq -- "-g '$actual_group'" <<<"$output"
+                  test ! -e "$prefix"
+                ''
+              else if scenario == "non-writable" then
+                ''
+                  managed_path="$prefix/Homebrew/Library"
+                  mkdir -p "$managed_path"
+                  chmod 0555 "$managed_path"
+                  materialize_setup_script "$actual_user"
+
+                  if output="$({ "$setup_script"; } 2>&1)"; then
+                    >&2 echo "Home Manager activation unexpectedly mutated a non-writable managed path"
+                    exit 1
+                  fi
+
+                  printf '%s\n' "$output"
+                  ${pkgs.gnugrep}/bin/grep -Fq "$managed_path is not writable" <<<"$output"
+                  ${pkgs.gnugrep}/bin/grep -Fq 'sudo chown -R' <<<"$output"
+                  test ! -w "$managed_path"
+                  test ! -e "$prefix/.managed_by_nix_darwin"
+                  test ! -e "$prefix/etc"
+                ''
+              else if scenario == "owner-mismatch" then
+                ''
+                  mkdir -p "$prefix"
+                  ${pkgs.coreutils}/bin/cp "$store_setup_script" "$setup_script"
+                  chmod +x "$setup_script"
+
+                  if output="$({ "$setup_script"; } 2>&1)"; then
+                    >&2 echo "Home Manager activation accepted a mismatched configured owner"
+                    exit 1
+                  fi
+
+                  printf '%s\n' "$output"
+                  ${pkgs.gnugrep}/bin/grep -Fq 'must run as the configured user root' <<<"$output"
+                  test ! -e "$prefix/.managed_by_nix_darwin"
+                ''
+              else
+                throw "unknown Home Manager activation test scenario: ${scenario}"
+            }
+          '';
       }
     );
 
@@ -419,6 +479,7 @@ let
           if isDarwin then
             ''
               require_literal /usr/bin/id
+              require_literal /usr/bin/find
               require_literal /usr/bin/readlink
               require_literal /bin/rm
               require_literal /bin/ln
@@ -440,6 +501,7 @@ let
               reject_literal '$(readlink '
               reject_literal '  ln -sfn'
               require_literal 'ID=(${pkgs.coreutils}/bin/id)'
+              require_literal 'FIND=(${pkgs.findutils}/bin/find)'
               require_literal 'READLINK=(${pkgs.coreutils}/bin/readlink)'
               require_literal 'RM=(${pkgs.coreutils}/bin/rm)'
               require_literal 'LN=(${pkgs.coreutils}/bin/ln)'
@@ -453,6 +515,7 @@ let
               require_literal 'INSTALL=(${pkgs.coreutils}/bin/install -d -o root -g root -m 0755)'
               require_literal '${pkgs.util-linux}/bin/runuser -u runner -- "$BIN_BREW" trust --command example/test >/dev/null'
               reject_bare_assignment ID id
+              reject_bare_assignment FIND find
               reject_bare_assignment READLINK readlink
               reject_bare_assignment RM rm
               reject_bare_assignment LN ln
@@ -573,12 +636,22 @@ in
 
   home-manager-missing-prefix = makeHomeManagerActivationTest {
     name = "home-manager-missing-prefix";
-    prepared = false;
+    scenario = "missing";
   };
 
   home-manager-prepared-prefix = makeHomeManagerActivationTest {
     name = "home-manager-prepared-prefix";
-    prepared = true;
+    scenario = "prepared";
+  };
+
+  home-manager-non-writable-prefix = makeHomeManagerActivationTest {
+    name = "home-manager-non-writable-prefix";
+    scenario = "non-writable";
+  };
+
+  home-manager-owner-mismatch = makeHomeManagerActivationTest {
+    name = "home-manager-owner-mismatch";
+    scenario = "owner-mismatch";
   };
 
   launcher-content = makeTest {

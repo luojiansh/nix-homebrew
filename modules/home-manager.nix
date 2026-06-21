@@ -41,6 +41,13 @@ lib.mkIf (options ? home) (
       nix-homebrew.group = lib.mkDefault (if pkgs.stdenv.hostPlatform.isDarwin then "admin" else "users");
     }
     (lib.mkIf cfg.enable {
+      assertions = [
+        {
+          assertion = cfg.user == config.home.username;
+          message = "nix-homebrew.user must match home.username when using Home Manager";
+        }
+      ];
+
       # Home Manager package management
       home.packages = [ cfg.brewLauncher ];
 

@@ -11,6 +11,7 @@
   utilsFile = ./utils-linux.sh;
   commands = {
     id = "${pkgs.coreutils}/bin/id";
+    find = "${pkgs.findutils}/bin/find";
     readlink = "${pkgs.coreutils}/bin/readlink";
     rm = "${pkgs.coreutils}/bin/rm";
     ln = "${pkgs.coreutils}/bin/ln";

@@ -27,8 +27,43 @@ let
   makeBinBrew = cfg.makeBinBrew;
   isHomeManager = activationMode == "home-manager";
 
+  homeManagerManagedDirectories = [
+    "bin"
+    "etc"
+    "include"
+    "lib"
+    "sbin"
+    "share"
+    "opt"
+    "var"
+    "Frameworks"
+    "Cellar"
+    "Caskroom"
+    "etc/bash_completion.d"
+    "lib/pkgconfig"
+    "share/aclocal"
+    "share/doc"
+    "share/info"
+    "share/locale"
+    "share/man"
+    "share/man/man1"
+    "share/man/man2"
+    "share/man/man3"
+    "share/man/man4"
+    "share/man/man5"
+    "share/man/man6"
+    "share/man/man7"
+    "share/man/man8"
+    "share/zsh"
+    "share/zsh/site-functions"
+    "var/log"
+    "var/homebrew"
+    "var/homebrew/linked"
+  ];
+
   checkHomeManagerPrefix = prefix: ''
     HOMEBREW_PREFIX="${prefix.prefix}"
+    HOMEBREW_LIBRARY="${prefix.library}"
 
     if [[ ! -e "$HOMEBREW_PREFIX" ]]; then
       error "Home Manager cannot set up Homebrew because $HOMEBREW_PREFIX does not exist."
@@ -42,11 +77,17 @@ let
       exit 1
     fi
 
-    if [[ ! -w "$HOMEBREW_PREFIX" ]]; then
-      error "Home Manager cannot set up Homebrew because $HOMEBREW_PREFIX is not writable."
-      ohai "Prepare the prefix once before activating again:"
-      ohai "  sudo install -d -o ${lib.escapeShellArg cfg.user} -g '$NIX_HOMEBREW_PRIMARY_GROUP' -m 0755 ${lib.escapeShellArg prefix.prefix}"
-      exit 1
+    check_home_manager_directory "$HOMEBREW_PREFIX"
+    ${lib.concatMapStrings (directory: ''
+      check_home_manager_directory "$HOMEBREW_PREFIX/${directory}"
+    '') homeManagerManagedDirectories}
+    check_home_manager_directory "''${HOMEBREW_LIBRARY%/*}"
+    check_home_manager_directory "$HOMEBREW_LIBRARY"
+
+    if [[ -d "$HOMEBREW_LIBRARY" ]] && [[ ! -L "$HOMEBREW_LIBRARY" ]]; then
+      while IFS= read -r -d ''' managed_directory; do
+        check_home_manager_directory "$managed_directory"
+      done < <("''${FIND[@]}" "$HOMEBREW_LIBRARY" -type d -print0)
     fi
   '';
 
@@ -190,6 +231,7 @@ in
     source ${utilsFile}
 
     ID=(${lib.escapeShellArgs [ commands.id ]})
+    FIND=(${lib.escapeShellArgs [ commands.find ]})
     READLINK=(${lib.escapeShellArgs [ commands.readlink ]})
     RM=(${lib.escapeShellArgs [ commands.rm ]})
     LN=(${lib.escapeShellArgs [ commands.ln ]})
@@ -206,8 +248,20 @@ in
     ${
       if isHomeManager then
         ''
-          NIX_HOMEBREW_UID=$("''${ID[@]}" -u)
-          NIX_HOMEBREW_GID=$("''${ID[@]}" -g)
+          NIX_HOMEBREW_UID=$("''${ID[@]}" -u ${lib.escapeShellArg cfg.user} || (error "Failed to get UID of ${cfg.user}"; exit 1))
+          CURRENT_UID=$("''${ID[@]}" -u)
+          if [[ "$CURRENT_UID" != "$NIX_HOMEBREW_UID" ]]; then
+            error "Home Manager activation must run as the configured user ${cfg.user}."
+            exit 1
+          fi
+
+          NIX_HOMEBREW_GID=$("''${ID[@]}" -g ${lib.escapeShellArg cfg.user} || (error "Failed to get the primary group ID of ${cfg.user}"; exit 1))
+          CURRENT_GID=$("''${ID[@]}" -g)
+          if [[ "$CURRENT_GID" != "$NIX_HOMEBREW_GID" ]]; then
+            error "Home Manager activation must run with the primary group of ${cfg.user}."
+            exit 1
+          fi
+
           NIX_HOMEBREW_PRIMARY_GROUP=$("''${ID[@]}" -gn ${lib.escapeShellArg cfg.user} || (error "Failed to get the primary group of ${cfg.user}"; exit 1))
         ''
       else
@@ -242,6 +296,35 @@ in
     is_occupied() {
       [[ -e "$1" ]] && ([[ ! -L "$1" ]] || ! is_in_nix_store "$1")
     }
+
+    ${lib.optionalString isHomeManager ''
+      home_manager_bootstrap_required() {
+        local path="$1"
+        local escaped_path
+        printf -v escaped_path '%q' "$path"
+
+        error "Home Manager cannot set up Homebrew because $path is not writable."
+        ohai "Prepare the managed path once before activating again:"
+        ohai "  sudo chown -R ${lib.escapeShellArg cfg.user}:'$NIX_HOMEBREW_PRIMARY_GROUP' $escaped_path"
+        ohai "  sudo chmod -R u+rwX $escaped_path"
+        exit 1
+      }
+
+      check_home_manager_directory() {
+        local path="$1"
+
+        if [[ -e "$path" ]] || [[ -L "$path" ]]; then
+          if [[ ! -d "$path" ]]; then
+            error "Home Manager cannot set up Homebrew because $path is not a directory."
+            exit 1
+          fi
+
+          if [[ ! -w "$path" ]] || [[ ! -x "$path" ]]; then
+            home_manager_bootstrap_required "$path"
+          fi
+        fi
+      }
+    ''}
 
     ${lnForceFunction}
 

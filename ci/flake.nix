@@ -3,9 +3,20 @@
   inputs = {
     nixpkgs_unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs_26_05.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs_home_manager_unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs_home_manager_26_05.url = "github:NixOS/nixpkgs/nixos-26.05";
 
     nix-darwin_unstable.url = "github:nix-darwin/nix-darwin";
     nix-darwin_26_05.url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
+
+    home-manager_unstable = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs_home_manager_unstable";
+    };
+    home-manager_26_05 = {
+      url = "github:nix-community/home-manager/release-26.05";
+      inputs.nixpkgs.follows = "nixpkgs_home_manager_26_05";
+    };
 
     nix-github-actions = {
       url = "github:nix-community/nix-github-actions";
@@ -31,10 +42,16 @@
         "unstable" = {
           nixpkgs = inputs.nixpkgs_unstable;
           nix-darwin = inputs.nix-darwin_unstable;
+          home-manager = inputs.home-manager_unstable;
+          homeManagerNixpkgs = inputs.nixpkgs_home_manager_unstable;
+          linuxStateVersion = "26.05";
         };
         "26.05" = {
           nixpkgs = inputs.nixpkgs_26_05;
           nix-darwin = inputs.nix-darwin_26_05;
+          home-manager = inputs.home-manager_26_05;
+          homeManagerNixpkgs = inputs.nixpkgs_home_manager_26_05;
+          linuxStateVersion = "26.05";
         };
       };
 
@@ -86,6 +103,8 @@
                 inherit self pkgs;
                 inherit (inputs') nixpkgs;
                 inherit (inputs') nix-darwin;
+                inherit (inputs') home-manager linuxStateVersion;
+                home-manager-pkgs = inputs'.homeManagerNixpkgs.legacyPackages.${system};
               };
             in
             tests.${test};
@@ -93,14 +112,11 @@
           enabledMatrixForSystem =
             system:
             lib.filterAttrs (
-              _:
-              setup:
-              (builtins.tryEval (
-                assembleTest {
-                  inherit system;
-                  inherit (setup) release test;
-                }
-              )).success
+              _: setup:
+              (builtins.tryEval (assembleTest {
+                inherit system;
+                inherit (setup) release test;
+              })).success
             ) matrix;
 
           ciTests = lib.genAttrs supportedSystems (
@@ -113,31 +129,29 @@
               }
             ) (enabledMatrixForSystem system)
           );
-          ciScripts = lib.mapAttrs (
+          checks = lib.mapAttrs (
             system: tests: lib.mapAttrs (name: test: test.config.system.build.ci-script) tests
           ) ciTests;
         in
         {
-          inherit ciTests;
+          inherit ciTests checks;
           packages = forAllSystems (
             pkgs:
             pkgs.callPackages (self + "/pkgs") {
               inherit brew-src;
             }
           );
-          devShells = forAllSystems (
-            pkgs: {
-              default = pkgs.mkShell {
-                nativeBuildInputs = with pkgs; [
-                  nixfmt
-                ];
+          devShells = forAllSystems (pkgs: {
+            default = pkgs.mkShell {
+              nativeBuildInputs = with pkgs; [
+                nixfmt
+              ];
 
-                BREW_SRC = brew-src;
-              };
-            }
-          );
+              BREW_SRC = brew-src;
+            };
+          });
           githubActions = inputs.nix-github-actions.lib.mkGithubMatrix {
-            checks = ciScripts;
+            inherit checks;
             platforms = githubPlatforms;
           };
         };

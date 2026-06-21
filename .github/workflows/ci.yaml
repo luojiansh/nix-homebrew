@@ -12,6 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: samueldr/lix-gha-installer-action@v2025-10-27
+      - name: Check formatting
+        run: nix develop -c nixfmt --check .
+      - name: Check diff formatting
+        run: git diff --check
       - id: set-matrix
         name: Generate Nix Matrix
         run: |

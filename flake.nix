@@ -64,6 +64,7 @@
         packages
         devShells
         ciTests
+        checks
         githubActions
         ;
     };

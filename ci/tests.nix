@@ -3,12 +3,43 @@
   pkgs,
   nix-darwin,
   nixpkgs ? null,
+  home-manager ? null,
+  home-manager-pkgs ? null,
+  linuxStateVersion ? null,
 }:
 
 let
   inherit (pkgs) lib system;
 
   tools = self.packages.${pkgs.system};
+
+  makeCiScript =
+    {
+      name,
+      preScript ? "",
+      script ? "",
+      requiredPaths ? [ ],
+      postScript ? "",
+    }:
+    pkgs.runCommandLocal name { } ''
+      set -euo pipefail
+      ${lib.concatMapStringsSep "\n" (path: "test -e ${path}") requiredPaths}
+
+      cat >"$out" <<'EOF'
+      #!${pkgs.bash}/bin/bash
+      set -euo pipefail
+      if [[ -z "''${NIX_HOMEBREW_CI:-}" ]]; then
+        >&2 echo "This script can only be run on nix-homebrew CI."
+        exit 1
+      fi
+      set -x
+      ${preScript}
+      ${script}
+      ${postScript}
+      EOF
+
+      chmod +x "$out"
+    '';
 
   makeSystemTest =
     mkSystem: baseModule: module:
@@ -39,6 +70,10 @@ let
                     export PATH=/run/current-system/sw/bin:$PATH
                   '';
                 };
+                requiredPaths = lib.mkOption {
+                  type = lib.types.listOf lib.types.package;
+                  default = [ ];
+                };
                 postScript = lib.mkOption {
                   type = lib.types.lines;
                   default = "";
@@ -47,27 +82,36 @@ let
             };
             config = {
               documentation.enable = false;
-              system.stateVersion = 6;
               nix-homebrew = {
                 user = lib.mkForce "runner";
               };
 
-              system.build.ci-script = pkgs.writeShellScript "ci-script.sh" ''
-                set -euo pipefail
-                if [[ -z "''${NIX_HOMEBREW_CI:-}" ]]; then
-                  >&2 echo "This script can only be run on nix-homebrew CI."
-                  exit 1
-                fi
-                set -x
-                ${config.ci.preScript}
-                ${config.ci.script}
-                ${config.ci.postScript}
-              '';
+              system.build.ci-script = makeCiScript {
+                name = "ci-script.sh";
+                inherit (config.ci)
+                  preScript
+                  script
+                  requiredPaths
+                  postScript
+                  ;
+              };
             };
           }
         )
       ];
     };
+
+  darwinStateVersionModule = {
+    system.stateVersion = 6;
+  };
+
+  linuxStateVersionModule =
+    if linuxStateVersion == null then
+      throw "linuxStateVersion must be set for Linux tests"
+    else
+      {
+        system.stateVersion = linuxStateVersion;
+      };
 
   nukeModule = {
     ci.script = lib.mkForce ''
@@ -87,7 +131,15 @@ let
         lib.pipe makeSystemTest [
           (applyMkSystem: applyMkSystem nix-darwin.lib.darwinSystem)
           (applyBaseModule: applyBaseModule self.darwinModules.nix-homebrew)
-          (applyModule: applyModule darwinModule)
+          (
+            applyModule:
+            applyModule {
+              imports = [
+                darwinStateVersionModule
+                darwinModule
+              ];
+            }
+          )
         ]
     else if pkgs.stdenv.hostPlatform.isLinux then
       if linuxModule == null then
@@ -96,7 +148,15 @@ let
         lib.pipe makeSystemTest [
           (applyMkSystem: applyMkSystem nixpkgs.lib.nixosSystem)
           (applyBaseModule: applyBaseModule self.nixosModules.nix-homebrew)
-          (applyModule: applyModule linuxModule)
+          (
+            applyModule:
+            applyModule {
+              imports = [
+                linuxStateVersionModule
+                linuxModule
+              ];
+            }
+          )
         ]
     else
       throw "Unsupported CI test platform: ${pkgs.stdenv.hostPlatform.system}";
@@ -219,6 +279,188 @@ let
         );
     }
   );
+
+  makeFakeBrewPackage =
+    name:
+    pkgs.runCommandLocal "${name}-fake-brew" { } ''
+      mkdir -p "$out/Library/Homebrew"
+      cat >"$out/Library/Homebrew/brew.sh" <<'EOF'
+      #!${pkgs.bash}/bin/bash
+      set -euo pipefail
+
+      case "''${1:-}" in
+        config)
+          printf 'HOMEBREW_PREFIX: %s\n' "$HOMEBREW_PREFIX"
+          ;;
+        *)
+          printf 'fake brew invoked: %s\n' "$*"
+          ;;
+      esac
+      EOF
+      chmod +x "$out/Library/Homebrew/brew.sh"
+    '';
+
+  evalStandaloneHomeManager =
+    {
+      name,
+      module,
+    }:
+    if home-manager == null then
+      throw "home-manager input must be set for standalone Home Manager tests"
+    else if home-manager-pkgs == null then
+      throw "home-manager-pkgs must be set for standalone Home Manager tests"
+    else
+      home-manager.lib.homeManagerConfiguration {
+        pkgs = home-manager-pkgs;
+        modules = [
+          self.homeManagerModules.nix-homebrew
+          {
+            home = {
+              username = "runner";
+              homeDirectory = "/tmp/nix-homebrew-${name}-home";
+              stateVersion = linuxStateVersion;
+            };
+          }
+          module
+        ];
+      };
+
+  wrapStandaloneHomeManagerTest =
+    {
+      name,
+      homeConfiguration,
+      script ? "${pkgs.coreutils}/bin/true",
+    }:
+    {
+      config.system.build.ci-script = makeCiScript {
+        name = "${name}.sh";
+        requiredPaths = [ homeConfiguration.activationPackage ];
+        inherit script;
+      };
+    };
+
+  standaloneDisabledHomeManager =
+    let
+      homeConfiguration = evalStandaloneHomeManager {
+        name = "standalone-home-manager-disabled";
+        module = {
+          nix-homebrew.enable = false;
+        };
+      };
+      homePackageNames = map lib.getName homeConfiguration.config.home.packages;
+      homeActivation = homeConfiguration.config.home.activation;
+    in
+    assert lib.all (assertion: assertion.assertion) homeConfiguration.config.assertions;
+    assert !(builtins.elem "brew" homePackageNames);
+    assert !(homeActivation ? setup-homebrew);
+    wrapStandaloneHomeManagerTest {
+      name = "standalone-home-manager-disabled";
+      inherit homeConfiguration;
+    };
+
+  standaloneEnabledHomeManager =
+    let
+      prefix = "/tmp/nix-homebrew-standalone-home-manager-enabled-prefix";
+      fakeBrew = makeFakeBrewPackage "standalone-home-manager-enabled";
+      homeConfiguration = evalStandaloneHomeManager {
+        name = "standalone-home-manager-enabled";
+        module =
+          { lib, ... }:
+          {
+            nix-homebrew = {
+              enable = true;
+              package = fakeBrew;
+              patchBrew = false;
+              mutableTaps = true;
+              prefixes = lib.mkForce {
+                ${prefix} = {
+                  enable = true;
+                  library = "${prefix}/Homebrew/Library";
+                  taps = { };
+                };
+              };
+            };
+          };
+      };
+      homePackageNames = map lib.getName homeConfiguration.config.home.packages;
+      homeActivation = homeConfiguration.config.home.activation;
+    in
+    assert lib.all (assertion: assertion.assertion) homeConfiguration.config.assertions;
+    assert builtins.elem "brew" homePackageNames;
+    assert homeActivation ? setup-homebrew;
+    wrapStandaloneHomeManagerTest {
+      name = "standalone-home-manager-enabled";
+      inherit homeConfiguration;
+    };
+
+  standaloneHomeManagerActivation =
+    let
+      name = "standalone-home-manager-activation";
+      prefix = "/tmp/nix-homebrew-${name}-prefix";
+      homeDirectory = "/tmp/nix-homebrew-${name}-home";
+      fakeBrew = makeFakeBrewPackage name;
+      homeConfiguration = evalStandaloneHomeManager {
+        inherit name;
+        module =
+          { lib, ... }:
+          {
+            nix-homebrew = {
+              enable = true;
+              package = fakeBrew;
+              patchBrew = false;
+              mutableTaps = true;
+              prefixes = lib.mkForce {
+                ${prefix} = {
+                  enable = true;
+                  library = "${prefix}/Homebrew/Library";
+                  taps = { };
+                };
+              };
+            };
+          };
+      };
+      launcher =
+        homeConfiguration.config.nix-homebrew.makeBinBrew
+          homeConfiguration.config.nix-homebrew.prefixes.${prefix};
+      activation = homeConfiguration.config.home.activation.setup-homebrew.data;
+    in
+    assert lib.all (assertion: assertion.assertion) homeConfiguration.config.assertions;
+    wrapStandaloneHomeManagerTest {
+      inherit name homeConfiguration;
+      script = ''
+        home_directory=${lib.escapeShellArg homeDirectory}
+        prefix=${lib.escapeShellArg prefix}
+
+        rm -rf "$home_directory" "$prefix"
+        mkdir -p "$home_directory" "$prefix"
+
+        if ${pkgs.gnugrep}/bin/grep -Eq '(/sudo |/runuser )' <<<${lib.escapeShellArg activation}; then
+          >&2 echo "Home Manager activation contains a user-switching command"
+          exit 1
+        fi
+
+        export HOME="$home_directory"
+        export USER=runner
+        export LOGNAME=runner
+
+        first_output="$({ "${homeConfiguration.activationPackage}/activate"; } 2>&1)"
+        printf '%s\n' "$first_output"
+        if ${pkgs.gnugrep}/bin/grep -Fqi sudo <<<"$first_output"; then
+          >&2 echo "standalone Home Manager activation requested sudo"
+          exit 1
+        fi
+
+        second_output="$({ "${homeConfiguration.activationPackage}/activate"; } 2>&1)"
+        printf '%s\n' "$second_output"
+
+        test -L "$prefix/bin/brew"
+        test "$(readlink "$prefix/bin/brew")" = ${lib.escapeShellArg launcher}
+
+        config_output="$("$prefix/bin/brew" config)"
+        printf '%s\n' "$config_output"
+        ${pkgs.gnugrep}/bin/grep -Fq ${lib.escapeShellArg "HOMEBREW_PREFIX: ${prefix}"} <<<"$config_output"
+      '';
+    };
 
   makeHomeManagerActivationTest =
     {
@@ -482,6 +724,31 @@ let
           '';
       }
     );
+
+  linuxInstallationModule =
+    { config, ... }:
+    {
+      boot.loader.grub = {
+        enable = true;
+        devices = [ "nodev" ];
+      };
+      fileSystems."/" = {
+        device = "tmpfs";
+        fsType = "tmpfs";
+      };
+      nix-homebrew.enable = true;
+      users.users.runner = {
+        isNormalUser = true;
+        group = "users";
+        home = "/home/runner";
+      };
+
+      ci.requiredPaths = [ config.system.build.toplevel ];
+      ci.postScript = ''
+        sudo "${config.system.build.toplevel}/activate"
+        "${config.nix-homebrew.brewLauncher}/bin/brew" config
+      '';
+    };
 
   launcherContentModule =
     { config, pkgs, ... }:
@@ -752,6 +1019,12 @@ in
 
   disabled-home-manager = disabledHomeManager;
 
+  standalone-home-manager-disabled = standaloneDisabledHomeManager;
+
+  standalone-home-manager-enabled = standaloneEnabledHomeManager;
+
+  standalone-home-manager-activation = standaloneHomeManagerActivation;
+
   home-manager-missing-prefix = makeHomeManagerActivationTest {
     name = "home-manager-missing-prefix";
     scenario = "missing";
@@ -780,6 +1053,10 @@ in
   linux-migration-layout-prefix-root = makeLinuxMigrationLayoutTest {
     name = "linux-migration-layout-prefix-root";
     repositoryLayout = "prefix-root";
+  };
+
+  install = makeTest {
+    linuxModule = linuxInstallationModule;
   };
 
   launcher-content = makeTest {

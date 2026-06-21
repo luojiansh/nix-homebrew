@@ -50,10 +50,10 @@
     }
   '';
   detectRepositorySnippet = ''
-    if [[ -e "$HOMEBREW_PREFIX/.git" ]]; then
+    if [[ -e "$HOMEBREW_PREFIX/Homebrew/.git" ]]; then
       # Looks like a standard Linux installation
-      ohai "Looks like a Linux Homebrew installation (Homebrew prefix is the repository)"
-      HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"
+      ohai "Looks like a standard Linux Homebrew installation"
+      HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX/Homebrew"
     else
       # Custom installation?
       ohai "Please uninstall Homebrew and try activating again."

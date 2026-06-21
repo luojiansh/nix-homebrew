@@ -192,10 +192,7 @@ let
               }
             )
           )
-          (
-            { config, pkgs, ... }:
-            testModule { inherit config pkgs; }
-          )
+          ({ config, pkgs, ... }: testModule { inherit config pkgs; })
         ];
       };
     in
@@ -361,6 +358,104 @@ let
               else
                 throw "unknown Home Manager activation test scenario: ${scenario}"
             }
+          '';
+      }
+    );
+
+  makeLinuxMigrationLayoutTest =
+    { name }:
+    evalHomeManager (
+      { config, pkgs }:
+      let
+        testUser = "__nix_homebrew_test_user__";
+        prefix = "$TMPDIR/nix-homebrew-${name}";
+        fakeBrew = pkgs.runCommandLocal "linux-migration-fake-brew" { } ''
+          mkdir -p "$out/Library/Homebrew"
+          touch "$out/Library/Homebrew/brew.sh"
+          chmod +x "$out/Library/Homebrew/brew.sh"
+        '';
+        nukeLogger = pkgs.writeShellScript "linux-migration-nuke-logger" ''
+          set -euo pipefail
+
+          printf '%s\n' "$1" >> "''${NIX_HOMEBREW_TEST_NUKE_LOG:?}"
+          rm -rf -- "$1"
+        '';
+        baseTools = pkgs.callPackage (self + "/pkgs") { };
+        setupScript =
+          (import (self + "/modules/setup-linux.nix") {
+            inherit lib pkgs config;
+            activationMode = "home-manager";
+          }).setupScript;
+      in
+      {
+        home.username = testUser;
+
+        nix-homebrew = {
+          enable = true;
+          autoMigrate = true;
+          package = fakeBrew;
+          patchBrew = false;
+          mutableTaps = true;
+          user = testUser;
+          prefixes = lib.mkForce {
+            ${prefix} = {
+              enable = true;
+              library = "${prefix}/Homebrew/Library";
+              taps = { };
+            };
+          };
+          trust.commands = [ ];
+          _tools = lib.mkForce (baseTools // { nuke-homebrew-repository = nukeLogger; });
+        };
+
+        system.build.ci-script =
+          assert lib.all (assertion: assertion.assertion) config.assertions;
+          pkgs.writeShellScript name ''
+            set -euo pipefail
+
+            prefix="${prefix}"
+            expected_repository="$prefix/Homebrew"
+            store_setup_script="${setupScript}"
+            setup_script="$TMPDIR/${name}-setup-homebrew"
+            nuke_log="$TMPDIR/${name}-nuke.log"
+            actual_user="$(${pkgs.coreutils}/bin/id -un)"
+
+            rm -rf "$prefix" "$setup_script" "$nuke_log"
+            mkdir -p "$prefix/Homebrew/.git" "$prefix/Homebrew/Library/Homebrew"
+
+            ${pkgs.gnused}/bin/sed "s/${testUser}/$actual_user/g" \
+              "$store_setup_script" >"$setup_script"
+            chmod +x "$setup_script"
+
+            export NIX_HOMEBREW_TEST_NUKE_LOG="$nuke_log"
+
+            if ! first_output="$({ "$setup_script"; } 2>&1)"; then
+              printf '%s\n' "$first_output"
+              >&2 echo "first Linux migration activation failed"
+              exit 1
+            fi
+
+            printf '%s\n' "$first_output"
+            ${pkgs.gnugrep}/bin/grep -Fq 'Looks like a standard Linux Homebrew installation' <<<"$first_output"
+            ${pkgs.gnugrep}/bin/grep -Fq 'Attempting to migrate Homebrew installation...' <<<"$first_output"
+            test -L "$prefix/bin/brew"
+            test -L "$prefix/Homebrew/Library/Homebrew"
+            test -e "$prefix/.managed_by_nix_darwin"
+            test "$(${pkgs.coreutils}/bin/cat "$nuke_log")" = "$expected_repository"
+            test "$(${pkgs.coreutils}/bin/wc -l < "$nuke_log")" -eq 1
+
+            if ! second_output="$({ "$setup_script"; } 2>&1)"; then
+              printf '%s\n' "$second_output"
+              >&2 echo "second Linux migration activation failed"
+              exit 1
+            fi
+
+            printf '%s\n' "$second_output"
+            if ${pkgs.gnugrep}/bin/grep -Fq 'Attempting to migrate Homebrew installation...' <<<"$second_output"; then
+              >&2 echo "second Linux migration activation unexpectedly retried migration"
+              exit 1
+            fi
+            test "$(${pkgs.coreutils}/bin/wc -l < "$nuke_log")" -eq 1
           '';
       }
     );
@@ -652,6 +747,10 @@ in
   home-manager-owner-mismatch = makeHomeManagerActivationTest {
     name = "home-manager-owner-mismatch";
     scenario = "owner-mismatch";
+  };
+
+  linux-migration-layout = makeLinuxMigrationLayoutTest {
+    name = "linux-migration-layout";
   };
 
   launcher-content = makeTest {

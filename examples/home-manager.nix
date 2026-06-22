@@ -5,7 +5,7 @@
 # In your flake.nix inputs:
 # {
 #   inputs = {
-#     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+#     nix-homebrew.url = "github:luojiansh/nix-homebrew";
 #     home-manager = {
 #       url = "github:nix-community/home-manager";
 #       inputs.nixpkgs.follows = "nixpkgs";
@@ -24,6 +24,9 @@
 #   imports = [
 #     nix-homebrew.homeManagerModules.nix-homebrew
 #   ];
+#
+#   # On Linux, create the default prefix once before activation:
+#   # sudo install -d -o yourname -g "$(id -gn yourname)" -m 0755 /home/linuxbrew/.linuxbrew
 #
 #   nix-homebrew = {
 #     enable = true;
@@ -44,6 +47,8 @@
 {
   nix-homebrew = {
     enable = true;
+    # Home Manager manages an existing writable prefix.
+    # On Linux, bootstrap /home/linuxbrew/.linuxbrew once with sudo first.
     # user automatically defaults to config.home.username
     # Optional: Disable mutable taps to have only declarative taps
     # mutableTaps = false;

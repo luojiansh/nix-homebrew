@@ -25,7 +25,7 @@ Add the following to your Flake inputs:
 ```nix
 {
   inputs = {
-    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+    nix-homebrew.url = "github:luojiansh/nix-homebrew";
 
     # Optional: Declarative tap management
     homebrew-core = {
@@ -44,12 +44,30 @@ Add the following to your Flake inputs:
 
 ### Using with Home Manager
 
-To use `nix-homebrew` with Home Manager, add it to your flake inputs:
+Home Manager manages an existing writable Homebrew prefix. It does not create or
+re-own a global prefix for you.
+
+On Linux, the supported default prefix is `/home/linuxbrew/.linuxbrew`. Create it
+once before activating Home Manager:
+
+```bash
+sudo install -d -o yourname -g "$(id -gn yourname)" -m 0755 /home/linuxbrew/.linuxbrew
+```
+
+If the prefix already exists but is not writable by your Home Manager user, fix
+it once before activating again:
+
+```bash
+sudo chown -R yourname:"$(id -gn yourname)" /home/linuxbrew/.linuxbrew
+sudo chmod -R u+rwX /home/linuxbrew/.linuxbrew
+```
+
+Then add `nix-homebrew` to your flake inputs:
 
 ```nix
 {
   inputs = {
-    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+    nix-homebrew.url = "github:luojiansh/nix-homebrew";
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -71,7 +89,7 @@ Then import the module in your Home Manager configuration:
 
     nix-homebrew = {
       enable = true;
-      user = "yourname";
+      # user defaults to the current Home Manager user
       # Optional: Configure taps, autoMigrate, etc. (see examples below)
     };
   };
@@ -89,16 +107,20 @@ Or in a standalone `home.nix`:
 
   nix-homebrew = {
     enable = true;
-    # user defaults to the current Home Manager user
+    # Home Manager requires a writable existing prefix such as
+    # /home/linuxbrew/.linuxbrew on Linux.
   };
 }
 ```
 
 ## Configuration
 
-### A. New Installation
+### A. System Installation (nix-darwin or NixOS)
 
-If you haven't installed Homebrew before, use the following configuration:
+If you want nix-darwin or NixOS to install and manage Homebrew during system
+activation, use the platform module and let the system own the bootstrap step.
+
+For example:
 
 ```nix
 {
@@ -150,6 +172,10 @@ If you haven't installed Homebrew before, use the following configuration:
   };
 }
 ```
+
+On NixOS, use `nix-homebrew.nixosModules.nix-homebrew` instead of the Darwin
+module. On Linux, the default prefix follows Homebrew-on-Linux and is
+`/home/linuxbrew/.linuxbrew`.
 
 Once activated, a unified `brew` launcher will be created under `/run/current-system/sw/bin` that automatically selects the correct Homebrew prefix to use based on the architecture.
 Run `arch -x86_64 brew` to install X86-64 packages through Rosetta 2.

@@ -12,7 +12,7 @@ let
   inherit (pkgs) lib;
   system = pkgs.stdenv.hostPlatform.system;
 
-  tools = self.packages.${pkgs.system};
+  tools = self.packages.${system};
 
   makeCiScript =
     {

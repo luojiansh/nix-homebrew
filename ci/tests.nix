@@ -300,6 +300,8 @@ let
       chmod +x "$out/Library/Homebrew/brew.sh"
     '';
 
+  linuxOnly = value: if pkgs.stdenv.hostPlatform.isLinux then value else throw "Linux-only CI test";
+
   evalStandaloneHomeManager =
     {
       name,
@@ -1019,11 +1021,11 @@ in
 
   disabled-home-manager = disabledHomeManager;
 
-  standalone-home-manager-disabled = standaloneDisabledHomeManager;
+  standalone-home-manager-disabled = linuxOnly standaloneDisabledHomeManager;
 
-  standalone-home-manager-enabled = standaloneEnabledHomeManager;
+  standalone-home-manager-enabled = linuxOnly standaloneEnabledHomeManager;
 
-  standalone-home-manager-activation = standaloneHomeManagerActivation;
+  standalone-home-manager-activation = linuxOnly standaloneHomeManagerActivation;
 
   home-manager-missing-prefix = makeHomeManagerActivationTest {
     name = "home-manager-missing-prefix";

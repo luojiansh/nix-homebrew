@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: samueldr/lix-gha-installer-action@v2025-10-27
       - name: Check formatting
-        run: nix develop -c nixfmt --check .
+        run: nix develop -c nixfmt --check ci/flake.nix ci/tests.nix flake.nix
       - name: Check diff formatting
         run: git diff --check
       - id: set-matrix

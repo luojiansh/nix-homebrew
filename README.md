@@ -72,7 +72,7 @@ Then add `nix-homebrew` to your flake inputs:
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    
+
     # (...)
   };
 }

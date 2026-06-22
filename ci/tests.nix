@@ -9,7 +9,8 @@
 }:
 
 let
-  inherit (pkgs) lib system;
+  inherit (pkgs) lib;
+  system = pkgs.stdenv.hostPlatform.system;
 
   tools = self.packages.${pkgs.system};
 

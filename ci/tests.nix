@@ -1013,6 +1013,64 @@ let
           '';
         };
     };
+  runtimeDepsModule =
+    { config, pkgs, ... }:
+    let
+      cfg = config.nix-homebrew;
+      prefixLauncher = cfg.makeBinBrew cfg.prefixes.${cfg.defaultLinuxPrefix};
+      patchedBrew = cfg._brewPackage;
+      glibcRb = "${patchedBrew}/Library/Homebrew/os/linux/glibc.rb";
+      vendorInstall = "${patchedBrew}/Library/Homebrew/cmd/vendor-install.sh";
+      runtimeDeps = pkgs.runCommandLocal "runtime-deps" { } ''
+        failed=0
+
+        # The prefix launcher filters the environment to a minimal PATH. On NixOS
+        # /usr/bin/curl and /usr/bin/ldd do not exist, so the launcher's own
+        # runtimePath must provide curl and ldd (used for curl-version detection
+        # and glibc-version detection respectively).
+        path_value="$(${pkgs.gnused}/bin/sed -n 's/^PATH="\([^"]*\)".*/\1/p' "${prefixLauncher}")"
+
+        check_resolves() {
+          tool="$1"
+          resolved="$(PATH="$path_value" command -v "$tool" 2>/dev/null || true)"
+          if [[ -z "$resolved" ]]; then
+            >&2 echo "$tool not resolved in launcher PATH"
+            failed=1
+          fi
+        }
+
+        check_resolves curl
+        check_resolves ldd
+
+        # Homebrew hardcodes /usr/bin/ldd for glibc detection; nix-homebrew
+        # patches it to resolve ldd via PATH instead (see modules/common.nix).
+        if ${pkgs.gnugrep}/bin/grep -Fq '/usr/bin/ldd' "${glibcRb}"; then
+          >&2 echo "glibc.rb still hardcodes /usr/bin/ldd"
+          failed=1
+        fi
+        if ! ${pkgs.gnugrep}/bin/grep -Fq 'Utils.popen_read("ldd"' "${glibcRb}"; then
+          >&2 echo "glibc.rb does not resolve ldd via PATH"
+          failed=1
+        fi
+        if ${pkgs.gnugrep}/bin/grep -Fq '/usr/bin/ldd' "${vendorInstall}"; then
+          >&2 echo "vendor-install.sh still hardcodes /usr/bin/ldd"
+          failed=1
+        fi
+
+        (( failed == 0 ))
+        touch "$out"
+      '';
+    in
+    {
+      nix-homebrew.enable = true;
+      system.stateVersion = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (lib.mkForce "26.05");
+
+      ci.script = lib.mkForce ''
+        cat "${runtimeDeps}"
+      '';
+    };
+
+  runtimeDepsTest = makeTest { linuxModule = runtimeDepsModule; };
 in
 {
   disabled-system = makeTest {
@@ -1071,6 +1129,8 @@ in
     darwinModule = setupContentModule;
     linuxModule = setupContentModule;
   };
+
+  runtime-deps = linuxOnly runtimeDepsTest;
 
   migrate = makeTest {
     darwinModule =

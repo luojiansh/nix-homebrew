@@ -41,6 +41,10 @@ let
       gawk
       file
     ]
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      curl.bin
+      glibc.bin
+    ]
   );
 
   prefixType = types.submodule (
@@ -210,6 +214,13 @@ let
           echo -e "setup-ruby-path() { export HOMEBREW_RUBY_PATH=\"${ruby}/bin/ruby\"; }" >>"$ruby_sh"
           echo -e "$:.unshift \"${ruby.gems.fiddle}/${ruby.gemPath}/gems/fiddle-${ruby.gems.fiddle.version}/lib\"" >>"$bundler_setup_rb"
         fi
+      ''
+      + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+        # NixOS has no /usr/bin/ldd; resolve glibc via PATH (runtimePath provides it)
+        substituteInPlace "$out/Library/Homebrew/os/linux/glibc.rb" \
+          --replace-fail '"/usr/bin/ldd"' '"ldd"'
+        substituteInPlace "$out/Library/Homebrew/cmd/vendor-install.sh" \
+          --replace-fail '/usr/bin/ldd' 'ldd'
       ''
       + lib.optionalString (brew ? version) ''
         # Embed version number instead of checking with git
